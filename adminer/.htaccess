@@ -1,0 +1,4 @@
+AuthType Basic
+AuthName "Restricted"
+AuthUserFile /var/www/raisemeup.jp/.htpasswd
+Require valid-user

@@ -1,0 +1,23 @@
+[
+  {
+    "code": "standard",
+    "name": "スタンダード",
+    "price_yen": 980,
+    "description": "基本の見守り会話プラン",
+    "is_active": true
+  },
+  {
+    "code": "family_watch",
+    "name": "ファミリー見守り",
+    "price_yen": 1980,
+    "description": "家族への通知・共有機能を含むプラン",
+    "is_active": true
+  },
+  {
+    "code": "premium_medical",
+    "name": "プレミアム(医療連携)",
+    "price_yen": 2980,
+    "description": "医療・介護関係者との連携機能を含む上位プラン",
+    "is_active": true
+  }
+]

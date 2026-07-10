@@ -1,0 +1,1 @@
+/etc/adminer/conf.php

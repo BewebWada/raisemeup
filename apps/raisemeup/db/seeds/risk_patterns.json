@@ -1,0 +1,47 @@
+[
+  {
+    "pattern_name": "振込・送金要求",
+    "category": "money_request",
+    "keywords": ["振込", "口座番号", "ATM", "現金", "至急送金"],
+    "regex_pattern": null,
+    "risk_level": "high",
+    "description": "金銭のやり取りに関する直接的な要求表現",
+    "is_active": true
+  },
+  {
+    "pattern_name": "緊急性を煽る表現",
+    "category": "urgency_pressure",
+    "keywords": ["今すぐ", "至急", "誰にも言わないで", "内緒"],
+    "regex_pattern": null,
+    "risk_level": "high",
+    "description": "判断力を鈍らせる緊急性・秘匿性の演出",
+    "is_active": true
+  },
+  {
+    "pattern_name": "個人情報の要求",
+    "category": "personal_info_request",
+    "keywords": ["暗証番号", "マイナンバー", "通帳", "キャッシュカード"],
+    "regex_pattern": null,
+    "risk_level": "high",
+    "description": "個人情報・認証情報の聞き出し",
+    "is_active": true
+  },
+  {
+    "pattern_name": "家族への相談を止めさせる",
+    "category": "isolation_attempt",
+    "keywords": ["家族には内緒", "誰にも相談しないで", "一人で対応して"],
+    "regex_pattern": null,
+    "risk_level": "medium",
+    "description": "家族・第三者への相談を阻害する誘導",
+    "is_active": true
+  },
+  {
+    "pattern_name": "不審な人物の登場",
+    "category": "unfamiliar_contact",
+    "keywords": ["知らない番号", "初めての人", "会ったことのない"],
+    "regex_pattern": null,
+    "risk_level": "low",
+    "description": "初出の人物や連絡先に関する言及(様子見レベル)",
+    "is_active": true
+  }
+]
