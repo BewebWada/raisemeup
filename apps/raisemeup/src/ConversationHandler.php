@@ -69,7 +69,16 @@ class ConversationHandler
         $knownPersons = $this->personRepo->getNamesByUserId((int) $user['id'], 30);
         $knownSchedules = $this->scheduleRepo->getUpcomingDetailsByUserId((int) $user['id'], 15);
         $summaries = $this->summaryRepo->getAllForUser((int) $user['id']);
-        $result = $this->claudeClient->generateReplyAndExtract($history, $userMessage, $knownPersons, $knownSchedules, $summaries);
+        $companionName = $user['companion_name'] ?: 'Raise Me Up';
+        $result = $this->claudeClient->generateReplyAndExtract(
+            $history,
+            $userMessage,
+            $knownPersons,
+            $knownSchedules,
+            $summaries,
+            $companionName,
+            (string) $user['display_name']
+        );
 
         // ⑤ 人物・予定の抽出結果をUPSERT
         foreach ($result['persons'] ?? [] as $person) {
@@ -83,7 +92,7 @@ class ConversationHandler
         $replyText = $result['reply_text'] ?? '';
         $lookup = $result['needs_lookup'] ?? null;
         if (is_array($lookup) && in_array($lookup['type'] ?? null, ['schedule', 'person', 'conversation'], true) && !empty(trim((string) ($lookup['query'] ?? '')))) {
-            $replyText = $this->performLookupAndAnswer((int) $user['id'], $history, $userMessage, $lookup);
+            $replyText = $this->performLookupAndAnswer((int) $user['id'], $history, $userMessage, $lookup, $companionName);
         }
 
         // ⑥ リスク検知(キーワードマッチング)
@@ -143,7 +152,8 @@ class ConversationHandler
 
             $this->userRepo->linkLineUserId($userId, $lineUserId);
             $displayName = $pendingUser['display_name'] ?: 'あなた';
-            $welcomeText = "はじめまして。{$displayName}さんのお話し相手になります、Raise Me Upです。これからよろしくお願いしますね。";
+            $companionName = $pendingUser['companion_name'] ?: 'Raise Me Up';
+            $welcomeText = "はじめまして。{$displayName}さんのお話し相手になります、{$companionName}です。これからよろしくお願いしますね。";
             $this->pdo->prepare(
                 'INSERT INTO conversations (user_id, direction, message_type, content) VALUES (?, "outbound", "text", ?)'
             )->execute([$userId, $welcomeText]);
@@ -165,7 +175,7 @@ class ConversationHandler
      * needs_lookupで指定された種類をDBから検索し、その結果をもとに2ターン目でAIに回答させる。
      * persons/schedulesの抽出は1ターン目の結果をそのまま使うので、ここでは返信文だけを作り直す。
      */
-    private function performLookupAndAnswer(int $userId, array $history, string $userMessage, array $lookup): string
+    private function performLookupAndAnswer(int $userId, array $history, string $userMessage, array $lookup, string $companionName): string
     {
         $type = $lookup['type'];
         // Claudeにはカンマ区切りで類義語・言い換えを複数出させている(単純な部分一致検索の精度を補うため)
@@ -199,7 +209,7 @@ class ConversationHandler
                 break;
         }
 
-        return $this->claudeClient->answerWithLookup($history, $userMessage, $type, $resultsText);
+        return $this->claudeClient->answerWithLookup($history, $userMessage, $type, $resultsText, $companionName);
     }
 
     /**

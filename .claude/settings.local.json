@@ -61,7 +61,15 @@
       "Read(//etc/apache2/**)",
       "Bash(xargs -I{} sh -c 'grep -l \"Claude\" {} 2>/dev/null')",
       "Bash(which php-fpm*)",
-      "Bash(awk '{print $9}' /var/log/apache2/raisemeup.jp-access.log)"
+      "Bash(awk '{print $9}' /var/log/apache2/raisemeup.jp-access.log)",
+      "Bash(chown www-data:www-data /var/www/raisemeup.jp/public_html/.env)",
+      "Bash(chmod 600 /var/www/raisemeup.jp/public_html/.env)",
+      "Bash(sed -E 's/=\\(.+\\)$/=<set, len=\\\\1>/')",
+      "Bash(awk -F'<set, len=' '{split\\($0,a,\"=\"\\); print a[1]\"=\"length\\($2\\)}')",
+      "Bash(stripe --version)",
+      "Bash(apt list *)",
+      "Bash(rm *)",
+      "Bash(chown www-data:www-data .env)"
     ]
   }
 }

@@ -4,6 +4,8 @@ require_once __DIR__ . '/../src/UserRepository.php';
 require_once __DIR__ . '/../src/FamilyAccountRepository.php';
 require_once __DIR__ . '/../src/PlanRepository.php';
 require_once __DIR__ . '/../src/SubscriptionRepository.php';
+require_once __DIR__ . '/../src/StripeClient.php';
+require_once __DIR__ . '/../src/ClaudeClient.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Database.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
 
@@ -20,11 +22,20 @@ if (empty($_SESSION['apply_csrf_token'])) {
     $_SESSION['apply_csrf_token'] = bin2hex(random_bytes(32));
 }
 
-// --- 申込完了画面(POST→リダイレクト後のGET、結果はセッションに一時保存したものを1回だけ表示) ---
+// --- 申込完了画面(POST→Stripe Checkout→リダイレクト後のGET、結果はセッションに一時保存したものを1回だけ表示) ---
 if (isset($_GET['done']) && !empty($_SESSION['apply_result'])) {
     $result = $_SESSION['apply_result'];
     unset($_SESSION['apply_result']);
-    renderDone($result);
+    renderDone($result, false);
+    exit;
+}
+
+// Stripe Checkoutを利用者が途中でキャンセルした場合。トライアル自体は既に作成済みなので、
+// 支払い未登録である旨だけ伝えて通常のトライアル案内を表示する(サービス利用は妨げない)
+if (isset($_GET['cancelled']) && !empty($_SESSION['apply_result'])) {
+    $result = $_SESSION['apply_result'];
+    unset($_SESSION['apply_result']);
+    renderDone($result, true);
     exit;
 }
 
@@ -32,7 +43,7 @@ $errors = [];
 $formValues = [
     'family_name' => '', 'family_email' => '', 'family_phone' => '',
     'user_display_name' => '', 'user_phone' => '', 'user_address' => '',
-    'user_birthdate' => '', 'relation' => '', 'plan_id' => '',
+    'user_birthdate' => '', 'relation' => '', 'plan_id' => '', 'companion_gender' => 'random',
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -72,6 +83,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!in_array($formValues['plan_id'], $activePlanIds, true)) {
         $errors[] = 'プランを選択してください。';
     }
+    if (!in_array($formValues['companion_gender'], ['male', 'female', 'random'], true)) {
+        $errors[] = '話し相手の性別を選択してください。';
+    }
 
     if (empty($errors)) {
         $selectedPlan = $planRepo->find((int) $formValues['plan_id']);
@@ -94,6 +108,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'phone' => $formValues['user_phone'],
                 'address' => $formValues['user_address'],
                 'birthdate' => $formValues['user_birthdate'],
+                'companion_gender' => $formValues['companion_gender'],
             ]);
 
             $pdo->prepare(
@@ -101,14 +116,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                  VALUES (?, ?, ?, 'payer', 1, 1)"
             )->execute([$user['id'], $family['id'], $formValues['relation'] ?: null]);
 
-            $subscriptionRepo->createTrial($user['id'], $family['id'], (int) $selectedPlan['id'], TRIAL_DAYS);
+            $subscriptionId = $subscriptionRepo->createTrial($user['id'], $family['id'], (int) $selectedPlan['id'], TRIAL_DAYS);
 
             $pdo->commit();
+
+            // 名前決定はトライアル契約の確定とは独立した処理なので、失敗してもここまでのDB確定はロールバックしない
+            // (generateCompanionName自体がAPI失敗時に固定名へフォールバックするため、実質必ず何かの名前が付く)
+            $claudeClient = new ClaudeClient(Config::get('ANTHROPIC_API_KEY'), Config::get('CLAUDE_MODEL'));
+            $companionName = $claudeClient->generateCompanionName($formValues['companion_gender']);
+            $userRepo->setCompanionName((int) $user['id'], $companionName);
 
             $trialEndsAt = (new DateTime('now', new DateTimeZone('Asia/Tokyo')))->modify('+' . TRIAL_DAYS . ' days');
 
             $_SESSION['apply_result'] = [
                 'user_display_name' => $formValues['user_display_name'],
+                'companion_name' => $companionName,
                 'user_invite_code' => $user['invite_code'],
                 'family_invite_code' => $family['invite_code'],
                 'plan_name' => $selectedPlan['name'],
@@ -116,6 +138,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'trial_ends_at' => $trialEndsAt->format('Y年n月j日'),
             ];
             unset($_SESSION['apply_csrf_token']);
+
+            // トライアル本体はDBに確定済みなので、ここから先(Stripe連携)が失敗してもロールバックはしない。
+            // カード登録なしのトライアルとしてそのままサービスを継続させる(方針はcheck_subscriptions.phpと同じ)。
+            $baseUrl = rtrim(Config::get('APP_BASE_URL', ''), '/');
+            if ($baseUrl !== '' && !empty($selectedPlan['stripe_price_id'])) {
+                try {
+                    $stripe = new StripeClient(Config::get('STRIPE_SECRET_KEY', ''));
+                    $customer = $stripe->createCustomer(
+                        $formValues['family_email'],
+                        $formValues['family_name'],
+                        ['family_account_id' => (string) $family['id']]
+                    );
+                    $familyRepo->setStripeCustomerId((int) $family['id'], $customer['id']);
+
+                    $session = $stripe->createCheckoutSession([
+                        'customer' => $customer['id'],
+                        'line_items' => [['price' => $selectedPlan['stripe_price_id'], 'quantity' => 1]],
+                        'subscription_data' => ['trial_period_days' => TRIAL_DAYS],
+                        'client_reference_id' => (string) $subscriptionId,
+                        'success_url' => $baseUrl . '/apply/?done=1',
+                        'cancel_url' => $baseUrl . '/apply/?cancelled=1',
+                    ]);
+
+                    header('Location: ' . $session['url']);
+                    exit;
+                } catch (Throwable $e) {
+                    error_log('Stripe checkout session creation failed: ' . $e->getMessage());
+                }
+            }
 
             header('Location: /apply/?done=1');
             exit;
@@ -206,6 +257,18 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken): v
     <label for="user_birthdate">生年月日</label>
     <input type="date" id="user_birthdate" name="user_birthdate" value="<?= h($v['user_birthdate']) ?>">
 
+    <label>話し相手の性別</label>
+    <div class="hint">AIの話し相手の名前を決める際に使用します</div>
+    <div class="plan">
+      <label><input type="radio" name="companion_gender" value="male" <?= $v['companion_gender'] === 'male' ? 'checked' : '' ?>> 男性</label>
+    </div>
+    <div class="plan">
+      <label><input type="radio" name="companion_gender" value="female" <?= $v['companion_gender'] === 'female' ? 'checked' : '' ?>> 女性</label>
+    </div>
+    <div class="plan">
+      <label><input type="radio" name="companion_gender" value="random" <?= $v['companion_gender'] === 'random' ? 'checked' : '' ?>> おまかせ</label>
+    </div>
+
     <h2>プランを選択</h2>
     <?php foreach ($plans as $plan): ?>
       <div class="plan">
@@ -224,7 +287,7 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken): v
     <?php
 }
 
-function renderDone(array $r): void
+function renderDone(array $r, bool $paymentPending): void
 {
     $addFriendUrl = Config::get('LINE_ADD_FRIEND_URL', '');
     ?>
@@ -243,6 +306,8 @@ function renderDone(array $r): void
   .steps { padding-left:1.2em; }
   .steps li { margin-bottom:10px; }
   a.button { display:block; text-align:center; margin-top:12px; padding:12px; background:#06c755; color:#fff; text-decoration:none; border-radius:8px; font-weight:bold; }
+  .qr-box { text-align:center; margin-top:12px; }
+  .qr-box img { width:160px; height:160px; border:1px solid #eee; border-radius:8px; padding:8px; background:#fff; }
   .optional { margin-top:32px; padding-top:16px; border-top:1px solid #eee; }
 </style>
 </head>
@@ -250,12 +315,22 @@ function renderDone(array $r): void
 <div class="card">
   <h1>お申込みありがとうございます</h1>
   <p><?= h($r['plan_name']) ?>(月額<?= number_format((int) $r['plan_price_yen']) ?>円)を<?= TRIAL_DAYS ?>日間無料でお試しいただけます(<?= h($r['trial_ends_at']) ?>まで)。</p>
+  <?php if ($paymentPending): ?>
+    <p style="color:#a12a1f;">お支払い情報の登録が完了していません。無料期間中はそのままご利用いただけますが、期間終了までにお支払い情報のご登録が必要です。折り返しご案内いたします。</p>
+  <?php endif; ?>
+
+  <p>話し相手の名前は<strong><?= h($r['companion_name']) ?></strong>に決まりました。</p>
 
   <p><strong><?= h($r['user_display_name']) ?></strong>様ご本人のスマートフォンで、以下の手順をお願いします。</p>
   <ol class="steps">
     <li>LINEで「Raise Me Up」公式アカウントを友だち追加する</li>
     <?php if ($addFriendUrl !== ''): ?>
       <li><a class="button" href="<?= h($addFriendUrl) ?>">友だち追加はこちら</a></li>
+      <li>
+        <div class="qr-box">
+          <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=<?= urlencode($addFriendUrl) ?>" alt="友だち追加QRコード" width="160" height="160">
+        </div>
+      </li>
     <?php endif; ?>
     <li>最初のメッセージとして、下記の連携コードをそのまま送信する</li>
   </ol>

@@ -49,4 +49,19 @@ class FamilyAccountRepository
             'UPDATE family_accounts SET line_user_id = ?, invite_code = NULL WHERE id = ?'
         )->execute([$lineUserId, $id]);
     }
+
+    public function setStripeCustomerId(int $id, string $stripeCustomerId): void
+    {
+        $this->pdo->prepare(
+            'UPDATE family_accounts SET stripe_customer_id = ? WHERE id = ?'
+        )->execute([$stripeCustomerId, $id]);
+    }
+
+    public function findByStripeCustomerId(string $stripeCustomerId): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM family_accounts WHERE stripe_customer_id = ?');
+        $stmt->execute([$stripeCustomerId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
+    }
 }

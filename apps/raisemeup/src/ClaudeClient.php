@@ -14,6 +14,68 @@ class ClaudeClient
         $this->model = $model;
     }
 
+    private const COMPANION_NAME_FALLBACKS = [
+        'male' => ['タロウ', 'ケンジ', 'ヒロシ'],
+        'female' => ['ハナ', 'サクラ', 'ミドリ'],
+        'random' => ['ヒカリ', 'ツバサ', 'ソラ'],
+    ];
+
+    // 申込フォームで選ばれた性別(male/female/random)をもとに、AIが自己紹介する名前を1つ決める。
+    // 失敗時はランダムな固定名にフォールバックする(申込フロー自体は止めない)。
+    public function generateCompanionName(string $gender): string
+    {
+        $genderInstruction = match ($gender) {
+            'male' => '男性らしい名前にしてください。',
+            'female' => '女性らしい名前にしてください。',
+            default => '性別は自由に決めてかまいません。',
+        };
+
+        $systemPrompt = <<<PROMPT
+これから高齢者向け会話サービスのAIコンパニオンとして、ある利用者専属の話し相手になります。
+{$genderInstruction}
+利用者が親しみを持てる、温かみのある日本語の名前(下の名前、または呼び名として自然なもの)を1つだけ考えてください。
+出力は名前の文字列のみ。説明・記号・カギカッコは一切付けないこと。
+PROMPT;
+
+        $ch = curl_init('https://api.anthropic.com/v1/messages');
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'x-api-key: ' . $this->apiKey,
+                'anthropic-version: 2023-06-01',
+            ],
+            CURLOPT_POSTFIELDS => json_encode([
+                'model' => $this->model,
+                'max_tokens' => 30,
+                'system' => $systemPrompt,
+                'messages' => [['role' => 'user', 'content' => '名前を教えてください。']],
+            ], JSON_UNESCAPED_UNICODE),
+        ]);
+        $response = curl_exec($ch);
+        $curlError = curl_error($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $fallbackPool = self::COMPANION_NAME_FALLBACKS[$gender] ?? self::COMPANION_NAME_FALLBACKS['random'];
+
+        if ($response === false || $httpCode !== 200) {
+            error_log("Claude generateCompanionName failed: HTTP {$httpCode} - curl error: {$curlError}");
+            return $fallbackPool[array_rand($fallbackPool)];
+        }
+
+        $data = json_decode($response, true);
+        $name = trim((string) ($data['content'][0]['text'] ?? ''), " \t\n\r\0\x0B「」『』\"'");
+        // 万一Claudeが長文を返した場合は名前らしくないので使わず、フォールバックする
+        if ($name === '' || mb_strlen($name) > 20) {
+            return $fallbackPool[array_rand($fallbackPool)];
+        }
+        return $name;
+    }
+
     /**
      * @param array $conversationHistory [['role' => 'user'|'assistant', 'content' => string], ...]
      * @param string $userMessage 今回受信したメッセージ
@@ -21,11 +83,13 @@ class ClaudeClient
      * @param array $knownSchedules ScheduleRepository::getUpcomingDetailsByUserIdの戻り値。要約とは別に渡す正確な予定一覧
      *   (要約は圧縮されているため、個別の予定について聞かれたときに正確な日付で答えるにはこちらが必要)
      * @param array $summaries SummaryRepository::getAllForUserの戻り値([type => 要約文])。バッチで事前生成された長期記憶
+     * @param string $companionName AIが自己紹介する名前(users.companion_name)
+     * @param string $userDisplayName 利用者本人の呼び名(users.display_name)
      * @return array ['reply_text' => string, 'persons' => [...], 'schedules' => [...]]
      */
-    public function generateReplyAndExtract(array $conversationHistory, string $userMessage, array $knownPersons, array $knownSchedules = [], array $summaries = []): array
+    public function generateReplyAndExtract(array $conversationHistory, string $userMessage, array $knownPersons, array $knownSchedules, array $summaries, string $companionName, string $userDisplayName): array
     {
-        $systemPrompt = $this->buildSystemPrompt($knownPersons, $knownSchedules, $summaries);
+        $systemPrompt = $this->buildSystemPrompt($knownPersons, $knownSchedules, $summaries, $companionName, $userDisplayName);
 
         $messages = $conversationHistory;
         $messages[] = ['role' => 'user', 'content' => $userMessage];
@@ -121,12 +185,12 @@ class ClaudeClient
      * generateReplyAndExtractが"needs_lookup"を返したときの2ターン目。
      * 検索結果を渡して返信文だけを生成する(persons/schedulesの抽出は1ターン目の結果をそのまま使うため、ここではやり直さない)。
      */
-    public function answerWithLookup(array $conversationHistory, string $userMessage, string $lookupType, string $lookupResultsText): string
+    public function answerWithLookup(array $conversationHistory, string $userMessage, string $lookupType, string $lookupResultsText, string $companionName): string
     {
         $typeLabel = self::LOOKUP_TYPE_LABELS[$lookupType] ?? $lookupType;
 
         $systemPrompt = <<<PROMPT
-あなたは高齢者向け会話サービス「Raise Me Up」のAIコンパニオンです。
+あなたの名前は「{$companionName}」です。高齢者向け会話サービスのAIコンパニオンとして会話しています。
 利用者からの質問に対して、追加で検索した{$typeLabel}の情報をもとに、親しみやすく温かい口調で
 2〜3文程度で回答してください。検索結果に該当する情報が無ければ、正直に分からない旨を伝えてください。
 出力は返信本文のみにしてください。前置き・JSON・見出しは不要です。
@@ -231,7 +295,7 @@ PROMPT;
         return trim($data['content'][0]['text'] ?? '');
     }
 
-    private function buildSystemPrompt(array $knownPersons, array $knownSchedules, array $summaries = []): string
+    private function buildSystemPrompt(array $knownPersons, array $knownSchedules, array $summaries, string $companionName, string $userDisplayName): string
     {
         $knownPersonsList = empty($knownPersons) ? 'なし' : implode('、', $knownPersons);
         $knownSchedulesList = empty($knownSchedules)
@@ -259,9 +323,12 @@ PROMPT;
             $summaryBlock = implode("\n\n", $summaryLines);
         }
 
+        $userLabel = $userDisplayName !== '' ? "{$userDisplayName}さん" : '利用者';
+
         return <<<PROMPT
-あなたは高齢者向け会話サービス「Raise Me Up」のAIコンパニオンです。
-利用者と自然な世間話・雑談をしながら、以下のルールに従ってください。
+あなたの名前は「{$companionName}」です。高齢者向け会話サービスのAIコンパニオンとして、{$userLabel}専属の話し相手を務めています。
+{$userLabel}と自然な世間話・雑談をしながら、以下のルールに従ってください。
+自分の名前を聞かれたら「{$companionName}」と答えてください。
 
 今日の日付は{$todayText}です。
 

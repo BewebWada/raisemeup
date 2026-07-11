@@ -23,4 +23,18 @@ return [
     'family_accounts.invite_code' => "ALTER TABLE family_accounts
         ADD COLUMN IF NOT EXISTS invite_code VARCHAR(12) DEFAULT NULL UNIQUE
         COMMENT '家族自身がLINE通知を受け取りたい場合の任意の連携コード' AFTER line_user_id;",
+
+    'plans.stripe_ids' => "ALTER TABLE plans
+        ADD COLUMN IF NOT EXISTS stripe_product_id VARCHAR(255) DEFAULT NULL AFTER description,
+        ADD COLUMN IF NOT EXISTS stripe_price_id VARCHAR(255) DEFAULT NULL AFTER stripe_product_id;",
+
+    'family_accounts.stripe_customer_id' => "ALTER TABLE family_accounts
+        ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255) DEFAULT NULL UNIQUE
+        COMMENT 'Stripe側のCustomer ID(決済情報登録後に設定)' AFTER is_billing_contact;",
+
+    'users.companion' => "ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS companion_gender ENUM('male', 'female', 'random') NOT NULL DEFAULT 'random'
+        COMMENT '申込時にご家族が選択するAIの性別。会話相手の名前決定に使用' AFTER birthdate,
+        ADD COLUMN IF NOT EXISTS companion_name VARCHAR(50) DEFAULT NULL
+        COMMENT 'AIが自己紹介する名前(companion_genderをもとに申込時に自動生成)' AFTER companion_gender;",
 ];
