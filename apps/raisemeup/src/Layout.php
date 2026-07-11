@@ -25,7 +25,8 @@ class Layout
   a { color:#b05a1e; }
   .site-header { background:#fff; border-bottom:1px solid #eee; }
   .site-header nav { max-width:840px; margin:0 auto; padding:16px 20px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; }
-  .site-header .logo { font-size:1.15rem; font-weight:bold; color:#333; text-decoration:none; }
+  .site-header .logo { display:flex; align-items:center; text-decoration:none; }
+  .site-header .logo img { display:block; }
   .site-header .links { display:flex; gap:20px; flex-wrap:wrap; }
   .site-header .links a { color:#555; text-decoration:none; font-size:0.95rem; }
   .site-header .links a.active { color:#b05a1e; font-weight:bold; }
@@ -40,7 +41,7 @@ class Layout
 <body>
 <header class="site-header">
   <nav>
-    <a class="logo" href="/">Raise Me Up</a>
+    <a class="logo" href="/"><img src="/assets/logo-horizontal.svg" alt="Raise Me Up" height="32"></a>
     <div class="links">
       <?php foreach (self::NAV as $key => [$url, $label]): ?>
         <a href="<?= htmlspecialchars($url, ENT_QUOTES, 'UTF-8') ?>" class="<?= $key === $activePage ? 'active' : '' ?>"><?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></a>
