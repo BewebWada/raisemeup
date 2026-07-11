@@ -69,7 +69,9 @@
       "Bash(stripe --version)",
       "Bash(apt list *)",
       "Bash(rm *)",
-      "Bash(chown www-data:www-data .env)"
+      "Bash(chown www-data:www-data .env)",
+      "Bash(npx --version)",
+      "Bash(npm ls *)"
     ]
   }
 }

@@ -121,10 +121,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->commit();
 
             // 名前決定はトライアル契約の確定とは独立した処理なので、失敗してもここまでのDB確定はロールバックしない
-            // (generateCompanionName自体がAPI失敗時に固定名へフォールバックするため、実質必ず何かの名前が付く)
-            $claudeClient = new ClaudeClient(Config::get('ANTHROPIC_API_KEY'), Config::get('CLAUDE_MODEL'));
-            $companionName = $claudeClient->generateCompanionName($formValues['companion_gender']);
-            $userRepo->setCompanionName((int) $user['id'], $companionName);
+            // (generateCompanionName自体がAPI失敗時に固定名へフォールバックするため、実質必ず何かの名前が付くが、
+            // 保存(DB書き込み)自体が失敗する可能性もあるので、ここも独立したtry/catchで囲み、既に確定した
+            // トライアルを「エラー」として家族に見せてしまわないようにする)
+            $companionName = 'Raise Me Up';
+            try {
+                $claudeClient = new ClaudeClient(Config::get('ANTHROPIC_API_KEY'), Config::get('CLAUDE_MODEL'));
+                $companionName = $claudeClient->generateCompanionName($formValues['companion_gender']);
+                $userRepo->setCompanionName((int) $user['id'], $companionName);
+            } catch (Throwable $e) {
+                error_log('Companion name generation/save failed: ' . $e->getMessage());
+            }
 
             $trialEndsAt = (new DateTime('now', new DateTimeZone('Asia/Tokyo')))->modify('+' . TRIAL_DAYS . ' days');
 
@@ -290,6 +297,7 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken): v
 function renderDone(array $r, bool $paymentPending): void
 {
     $addFriendUrl = Config::get('LINE_ADD_FRIEND_URL', '');
+    $familyAddFriendUrl = Config::get('LINE_FAMILY_ADD_FRIEND_URL', '');
     ?>
 <!DOCTYPE html>
 <html lang="ja">
@@ -339,7 +347,13 @@ function renderDone(array $r, bool $paymentPending): void
   </div>
 
   <div class="optional">
-    <p>ご家族様ご自身のLINEでも、無料期間終了のお知らせなどを受け取りたい場合は、同じ公式アカウントに以下のコードを送ってください(任意)。</p>
+    <p>ご家族様ご自身のLINEでも、無料期間終了のお知らせなどを受け取りたい場合は、ご家族向けの公式アカウント「RaiseMeUpサポート」を友だち追加のうえ、以下のコードを送ってください(任意)。</p>
+    <?php if ($familyAddFriendUrl !== ''): ?>
+      <a class="button" href="<?= h($familyAddFriendUrl) ?>">RaiseMeUpサポートを友だち追加</a>
+      <div class="qr-box">
+        <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=<?= urlencode($familyAddFriendUrl) ?>" alt="RaiseMeUpサポート友だち追加QRコード" width="160" height="160">
+      </div>
+    <?php endif; ?>
     <div class="code-box">
       <div class="code"><?= h($r['family_invite_code']) ?></div>
     </div>

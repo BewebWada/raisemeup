@@ -68,7 +68,11 @@ PROMPT;
         }
 
         $data = json_decode($response, true);
-        $name = trim((string) ($data['content'][0]['text'] ?? ''), " \t\n\r\0\x0B「」『』\"'");
+        $text = trim((string) ($data['content'][0]['text'] ?? ''));
+        // 「」『』はマルチバイト文字なので、trim()のcharlistに渡すとバイト単位で処理され
+        // UTF-8が壊れることがある(例:「く」で始まる名前のE3バイトだけが誤って削られる)。
+        // preg_replaceの'u'修飾子を使い、文字単位で安全に取り除く
+        $name = trim((string) preg_replace('/\A[「『"\']+|[」』"\']+\z/u', '', $text));
         // 万一Claudeが長文を返した場合は名前らしくないので使わず、フォールバックする
         if ($name === '' || mb_strlen($name) > 20) {
             return $fallbackPool[array_rand($fallbackPool)];

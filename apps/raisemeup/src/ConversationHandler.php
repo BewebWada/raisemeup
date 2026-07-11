@@ -3,7 +3,6 @@ require_once __DIR__ . '/Config.php';
 require_once __DIR__ . '/LineClient.php';
 require_once __DIR__ . '/ClaudeClient.php';
 require_once __DIR__ . '/UserRepository.php';
-require_once __DIR__ . '/FamilyAccountRepository.php';
 require_once __DIR__ . '/PersonRepository.php';
 require_once __DIR__ . '/ScheduleRepository.php';
 require_once __DIR__ . '/RiskDetector.php';
@@ -15,7 +14,6 @@ class ConversationHandler
     private LineClient $lineClient;
     private ClaudeClient $claudeClient;
     private UserRepository $userRepo;
-    private FamilyAccountRepository $familyRepo;
     private PersonRepository $personRepo;
     private ScheduleRepository $scheduleRepo;
     private RiskDetector $riskDetector;
@@ -27,7 +25,6 @@ class ConversationHandler
         $this->lineClient = $lineClient;
         $this->claudeClient = $claudeClient;
         $this->userRepo = new UserRepository($pdo);
-        $this->familyRepo = new FamilyAccountRepository($pdo);
         $this->personRepo = new PersonRepository($pdo);
         $this->scheduleRepo = new ScheduleRepository($pdo);
         $this->riskDetector = new RiskDetector($pdo);
@@ -122,20 +119,13 @@ class ConversationHandler
 
     /**
      * まだusersに(line_user_idで)紐付いていない送信元からのメッセージを処理する。
-     * ・既に通知専用として連携済みの家族アカウントなら定型文を返す
      * ・利用者本人の招待コードなら連携してウェルカムメッセージを返す(以降のメッセージから通常の会話フローに入る)
-     * ・家族の招待コード(通知を受け取りたい場合の任意コード)なら連携して定型文を返す
-     * ・どれにも一致しなければ招待コードの入力を促す
+     * ・一致しなければ招待コードの入力を促す
+     * (家族向けの通知連携は、別チャネル「RaiseMeUpサポート」のfamily_webhook.phpで扱う)
      * いずれの分岐でも replyToken を使い切って終了するため、呼び出し元はこの後の通常フローへは進まない。
      */
     private function resolveUnlinkedSender(string $lineUserId, string $messageText, string $lineMessageId, string $replyToken): void
     {
-        $family = $this->familyRepo->findByLineUserId($lineUserId);
-        if ($family !== null) {
-            $this->lineClient->reply($replyToken, '通知専用のアカウントとして登録済みです。ご本人様の見守り会話には、ご本人様のLINEアカウントをご利用ください。');
-            return;
-        }
-
         $pendingUser = $this->userRepo->findByInviteCode($messageText);
         if ($pendingUser !== null) {
             $userId = (int) $pendingUser['id'];
@@ -158,13 +148,6 @@ class ConversationHandler
                 'INSERT INTO conversations (user_id, direction, message_type, content) VALUES (?, "outbound", "text", ?)'
             )->execute([$userId, $welcomeText]);
             $this->lineClient->reply($replyToken, $welcomeText);
-            return;
-        }
-
-        $pendingFamily = $this->familyRepo->findByInviteCode($messageText);
-        if ($pendingFamily !== null) {
-            $this->familyRepo->linkLineUserId((int) $pendingFamily['id'], $lineUserId);
-            $this->lineClient->reply($replyToken, '通知専用のアカウントとして登録しました。無料期間の終了案内などをこちらにお送りします。');
             return;
         }
 

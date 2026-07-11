@@ -27,7 +27,8 @@ try {
 $dbConfig = require __DIR__ . '/../db/config.php';
 $pdo = Database::connect($dbConfig);
 $subscriptionRepo = new SubscriptionRepository($pdo);
-$lineClient = new LineClient(Config::get('LINE_CHANNEL_SECRET'), Config::get('LINE_CHANNEL_ACCESS_TOKEN'));
+// 決済失敗の通知は「RaiseMeUpサポート」チャネル(利用者本人の会話用アカウントとは別)から送る
+$lineClient = new LineClient(Config::get('LINE_FAMILY_CHANNEL_SECRET'), Config::get('LINE_FAMILY_CHANNEL_ACCESS_TOKEN'));
 
 $type = $event['type'] ?? '';
 $object = $event['data']['object'] ?? [];

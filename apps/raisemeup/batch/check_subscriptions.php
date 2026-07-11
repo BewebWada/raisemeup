@@ -15,7 +15,8 @@ Env::load(__DIR__ . '/../../../.env');
 
 $dbConfig = require __DIR__ . '/../db/config.php';
 $pdo = Database::connect($dbConfig);
-$lineClient = new LineClient(Config::get('LINE_CHANNEL_SECRET'), Config::get('LINE_CHANNEL_ACCESS_TOKEN'));
+// 家族への通知は「RaiseMeUpサポート」チャネル(利用者本人の会話用アカウントとは別)から送る
+$lineClient = new LineClient(Config::get('LINE_FAMILY_CHANNEL_SECRET'), Config::get('LINE_FAMILY_CHANNEL_ACCESS_TOKEN'));
 
 // 家族のline_user_idが設定されていれば送信し、無ければ何もしない(通知チャネルが無いだけで、契約状態には影響しない)
 function notifyFamily(LineClient $lineClient, ?string $familyLineUserId, string $text): void
