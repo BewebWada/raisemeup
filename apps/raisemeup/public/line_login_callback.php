@@ -39,9 +39,13 @@ try {
     $userRepo->linkLineUserId((int) $pending['id'], $profile['userId']);
     $_SESSION['line_friend_flag']['user'] = $isFriend;
 
+    // 友だち追加も必須のため、ここで確認できた場合だけ本当の意味でオンボード完了(active)にする。
     // 友だち追加だけではLINEのトーク一覧に何も表示されない(ユーザーから話しかけるまで会話が始まらない)ため、
-    // こちらから最初のメッセージを送ってトークを開始する
+    // こちらから最初のメッセージを送ってトークを開始する。
+    // まだ友だち追加していない場合は、後からwebhook.php側のfollowイベントで確認できた時点で
+    // ConversationHandler::handleFollowEventが同じ処理を行う(pendingのままにしておく)
     if ($isFriend) {
+        $userRepo->markOnboarded((int) $pending['id']);
         $displayName = $pending['display_name'] ?: 'あなた';
         $companionName = $pending['companion_name'] ?: 'たより';
         $greeting = "{$displayName}さん、はじめまして!{$companionName}です。\nこれから、よろしくお願いします。\n何でも気軽に話しかけてくださいね。";

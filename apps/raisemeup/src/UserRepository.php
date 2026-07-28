@@ -85,12 +85,23 @@ class UserRepository
         ]);
     }
 
-    // 招待コードでのLINE連携が成功した際に呼ぶ。コードは使い切りなのでクリアし、activeにする。
+    // LINEログイン(OAuth)成功時に呼ぶ。コードは使い切りなのでクリアする。
+    // 友だち追加は別イベント(followイベント)で確認できて初めて完了とするため、
+    // ここではstatusをactiveにはしない(友だち未追加のまま何日も放置されると
+    // check_subscriptions.phpの放置判定の対象になる)
     public function linkLineUserId(int $id, string $lineUserId): void
     {
         $this->pdo->prepare(
-            "UPDATE users SET line_user_id = ?, invite_code = NULL, status = 'active', onboarded_at = NOW() WHERE id = ?"
+            'UPDATE users SET line_user_id = ?, invite_code = NULL WHERE id = ?'
         )->execute([$lineUserId, $id]);
+    }
+
+    // 友だち追加(またはメッセージ到達=友だち確定)が確認できて初めて呼ぶ。ここで初めて本当の意味でオンボード完了とする
+    public function markOnboarded(int $id): void
+    {
+        $this->pdo->prepare(
+            "UPDATE users SET status = 'active', onboarded_at = NOW() WHERE id = ?"
+        )->execute([$id]);
     }
 
     // 会話中に「夜9時以降は話しかけないで」等の申告があった場合に、システムからの声かけ(send_proactive_messages.php)を

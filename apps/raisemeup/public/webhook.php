@@ -53,6 +53,12 @@ foreach ($events as $event) {
         } catch (Throwable $e) {
             error_log('Webhook location event handling failed: ' . $e->getMessage());
         }
+    } elseif ($event['type'] === 'follow') {
+        try {
+            $handler->handleFollowEvent($event);
+        } catch (Throwable $e) {
+            error_log('Webhook follow event handling failed: ' . $e->getMessage());
+        }
     }
     // sticker, image等は今回スコープ外。ログだけ残すか無視でよい
 }

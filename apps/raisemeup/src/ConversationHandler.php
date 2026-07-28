@@ -290,6 +290,37 @@ class ConversationHandler
         $this->lineClient->reply($replyToken, '教えてくれてありがとうございます。安心しました。');
     }
 
+    /**
+     * LINEの友だち追加(followイベント)を処理する。
+     * LINEログイン連携は済んでいるが、その時点では友だち追加していなかった利用者が、
+     * 後からQRコード等で友だち追加した場合にここで初めてオンボード完了(active)にし、
+     * ウェルカムメッセージを送る(line_login_callback.php側で友だち追加済みだった場合の処理と同じ)。
+     * 友だち追加も必須のため、これが完了するまではcheck_subscriptions.phpの放置判定の対象のまま。
+     */
+    public function handleFollowEvent(array $event): void
+    {
+        $lineUserId = $event['source']['userId'] ?? '';
+        if ($lineUserId === '') {
+            return;
+        }
+
+        $user = $this->userRepo->findByLineUserId($lineUserId);
+        // LINEログイン未連携(招待コード経由も未実施)のフォロー、または既にオンボード済み(再フォロー等)は無視する
+        if ($user === null || $user['status'] !== 'pending') {
+            return;
+        }
+
+        $this->userRepo->markOnboarded((int) $user['id']);
+        $displayName = $user['display_name'] ?: 'あなた';
+        $companionName = $user['companion_name'] ?: 'たより';
+        $greeting = "{$displayName}さん、はじめまして!{$companionName}です。\nこれから、よろしくお願いします。\n何でも気軽に話しかけてくださいね。";
+        if ($this->lineClient->push($lineUserId, $greeting)) {
+            $this->pdo->prepare(
+                'INSERT INTO conversations (user_id, direction, message_type, content) VALUES (?, "outbound", "text", ?)'
+            )->execute([(int) $user['id'], $greeting]);
+        }
+    }
+
     // 住所からJMA予報区を判定し、天気・警報注意報の要約を取得する。住所未登録・判定不可・API失敗時は
     // 空文字を返す(ClaudeClient側で「情報が無い」場合の振る舞いに委ねるので、ここでは例外を出さない)
     private function getWeatherSummaryForAddress(string $address): string
@@ -454,7 +485,10 @@ class ConversationHandler
                 return;
             }
 
+            // この経路はLINEからメッセージが届いている時点で友だち追加済みであることが保証されているため、
+            // followイベントを待たずその場でオンボード完了にしてよい
             $this->userRepo->linkLineUserId($userId, $lineUserId);
+            $this->userRepo->markOnboarded($userId);
             $displayName = $pendingUser['display_name'] ?: 'あなた';
             $companionName = $pendingUser['companion_name'] ?: 'たより';
             $welcomeText = "はじめまして。{$displayName}さんのお話し相手になります、{$companionName}です。これからよろしくお願いしますね。";
