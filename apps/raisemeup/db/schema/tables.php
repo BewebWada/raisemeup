@@ -277,6 +277,21 @@ return [
         UNIQUE KEY uniq_user_summary_type (user_id, summary_type)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='利用者ごとの要約(予定/人間関係/好み/日常ルーティン)。バッチで定期再生成しリアルタイム会話のプロンプトに注入する';",
 
+    'user_topic_touches' => "CREATE TABLE IF NOT EXISTS user_topic_touches (
+        id                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        user_id             BIGINT UNSIGNED NOT NULL,
+        topic_category      ENUM('family_friends', 'hobby', 'food', 'health', 'career_history',
+                                  'hometown_childhood', 'pet', 'neighborhood', 'entertainment')
+                            NOT NULL COMMENT '自己紹介期間の話題カバレッジ用の固定ジャンル(TopicCoverageRepository::CATEGORIES)',
+        first_touched_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '初めて話題に出た日時',
+        last_touched_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '直近で話題に出た日時(直近再言及の抑制に使用)',
+        touch_count         INT UNSIGNED NOT NULL DEFAULT 1,
+        created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE KEY uniq_user_topic (user_id, topic_category)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='利用者ごとの自己紹介期間の話題カバレッジ。要約とは別に、話題の偏り(同じ話題ばかり)を防ぐための追跡';",
+
     'family_messages' => "CREATE TABLE IF NOT EXISTS family_messages (
         id                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         user_id             BIGINT UNSIGNED NOT NULL COMMENT '伝言の宛先(利用者本人)',

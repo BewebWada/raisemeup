@@ -2,6 +2,7 @@
 require_once __DIR__ . '/ScheduleRepository.php';
 require_once __DIR__ . '/MedicationLogRepository.php';
 require_once __DIR__ . '/SummaryRepository.php';
+require_once __DIR__ . '/TopicCoverageRepository.php';
 
 class ClaudeClient
 {
@@ -58,11 +59,13 @@ PROMPT;
      *   未配信のご家族からの伝言。空配列なら「伝言なし」として扱われる
      * @param array $activeThemes FamilyThemeRepository::getActiveForUserの戻り値([['theme', ...], ...])。
      *   ご家族が設定した、出典を明かさず継続的に気にかけてほしいテーマ。空配列なら「なし」として扱われる
+     * @param array $topicCoverage TopicCoverageRepository::getAllForUserの戻り値。自己紹介期間の話題カバレッジ
+     * @param array $personaFacts users.companion_persona(json_decode済み)。コンパニオン自身の軽い自己紹介
      * @return array ['reply_text' => string, 'persons' => [...], 'schedules' => [...], 'family_message_delivered' => bool]
      */
-    public function generateReplyAndExtract(array $conversationHistory, string $userMessage, array $knownPersons, array $knownSchedules, array $summaries, string $companionName, string $userDisplayName, ?string $userGender = null, string $userAddress = '', string $weatherSummary = '', array $pendingFamilyMessages = [], array $activeThemes = [], array $medicationStatusToday = []): array
+    public function generateReplyAndExtract(array $conversationHistory, string $userMessage, array $knownPersons, array $knownSchedules, array $summaries, string $companionName, string $userDisplayName, ?string $userGender = null, string $userAddress = '', string $weatherSummary = '', array $pendingFamilyMessages = [], array $activeThemes = [], array $medicationStatusToday = [], array $topicCoverage = [], array $personaFacts = []): array
     {
-        $systemPrompt = $this->buildSystemPrompt($knownPersons, $knownSchedules, $summaries, $companionName, $userDisplayName, $userGender, $userAddress, $weatherSummary, $pendingFamilyMessages, $activeThemes, $medicationStatusToday);
+        $systemPrompt = $this->buildSystemPrompt($knownPersons, $knownSchedules, $summaries, $companionName, $userDisplayName, $userGender, $userAddress, $weatherSummary, $pendingFamilyMessages, $activeThemes, $medicationStatusToday, $topicCoverage, $personaFacts);
 
         $messages = $conversationHistory;
         $messages[] = ['role' => 'user', 'content' => $userMessage];
@@ -132,7 +135,7 @@ PROMPT;
         // 実際に生成できた自然な返信を届けることを優先する)
         if (trim($text) !== '' && strpos($text, '{') === false) {
             error_log("Claude API: JSON形式でない応答をそのまま採用 (attempt {$attempt}): " . substr($text, 0, 300));
-            return ['reply_text' => trim($text), 'persons' => [], 'schedules' => [], 'quiet_hours' => null, 'requested_companion_name' => null, 'family_message_delivered' => false];
+            return ['reply_text' => trim($text), 'persons' => [], 'schedules' => [], 'quiet_hours' => null, 'requested_companion_name' => null, 'family_message_delivered' => false, 'topics_touched' => []];
         }
 
         error_log("Claude API reply JSON parse failed (attempt {$attempt}, stop_reason={$stopReason}): " . substr($text, 0, 1500));
@@ -156,7 +159,7 @@ PROMPT;
 
     private function fallback(): array
     {
-        return ['reply_text' => self::FALLBACK_REPLY, 'persons' => [], 'schedules' => [], 'quiet_hours' => null, 'requested_companion_name' => null, 'family_message_delivered' => false];
+        return ['reply_text' => self::FALLBACK_REPLY, 'persons' => [], 'schedules' => [], 'quiet_hours' => null, 'requested_companion_name' => null, 'family_message_delivered' => false, 'topics_touched' => []];
     }
 
     private const LOOKUP_TYPE_LABELS = [
@@ -323,7 +326,7 @@ PROMPT;
      *   引き出しが少ない利用者ほど、同じ話題(例:トマトの収穫)を毎回持ち出しがちになるため、
      *   直近の話題を明示的に避けさせる材料として渡す。呼び出せない・データが無い場合は空配列でよい
      */
-    public function generateProactiveMessage(array $summaries, string $companionName, string $userDisplayName, ?string $userGender = null, bool $isCheckIn = false, bool $hadPendingWorry = false, array $recentOutboundMessages = []): string
+    public function generateProactiveMessage(array $summaries, string $companionName, string $userDisplayName, ?string $userGender = null, bool $isCheckIn = false, bool $hadPendingWorry = false, array $recentOutboundMessages = [], array $topicCoverage = [], array $personaFacts = []): string
     {
         $userLabel = $userDisplayName !== '' ? "{$userDisplayName}さん" : '利用者';
         $genderLine = match ($userGender) {
@@ -347,17 +350,47 @@ PROMPT;
         $summaryBlock = empty($summaryLines) ? '(まだ蓄積されていません)' : implode("\n\n", $summaryLines);
 
         // 話題の引き出しが少ないと、要約に載っている数少ない事実(例:トマトの収穫)を毎回持ち出して
-        // 同じ話題ばかりになりがちなので、直近で自分から話した内容を渡して重複を避けさせる
+        // 同じ話題ばかりになりがちなので、直近で自分から話した内容(日時ラベル付き)を渡して重複を避けさせる。
+        // $recentOutboundMessagesは['content'=>..., 'created_at'=>...]の配列(send_proactive_messages.php::getRecentOutboundMessages)
+        $weekdaysForLabel = ['日', '月', '火', '水', '木', '金', '土'];
         $recentTopicsBlock = empty($recentOutboundMessages)
             ? '(まだ話しかけた記録がありません)'
-            : implode("\n", array_map(fn($m) => '・' . $m, $recentOutboundMessages));
+            : implode("\n", array_map(function (array $m) use ($weekdaysForLabel) {
+                $label = '';
+                if (!empty($m['created_at'])) {
+                    $at = new DateTime((string) $m['created_at'], new DateTimeZone('Asia/Tokyo'));
+                    $label = '(' . $at->format('n/j') . '(' . $weekdaysForLabel[(int) $at->format('w')] . ') ' . $at->format('H:i') . ') ';
+                }
+                return '・' . $label . ($m['content'] ?? '');
+            }, $recentOutboundMessages));
 
+        $topicContext = self::buildTopicCoverageContext($topicCoverage);
         $topicGuidanceLine = self::isSummaryDataSparse($summaries)
             ? '- この方についての情報はまだ少ない状態です。分かっている範囲の話題を盛り込みつつ、季節や天気の'
-                . '話題に絡めて、好きな食べ物・趣味・日々の過ごし方など、相手を知るための軽い質問を1つ投げかけて、'
+                . '話題に絡めて、後述の【自己紹介期間の話題カバレッジ】にあるまだ話題に出ていないジャンルや、'
+                . '後述の【あなた自身について】の内容も使って、相手を知るための軽い質問を1つ投げかけて、'
                 . '少しずつ関係を深めていくことを意識してください'
             : '- 分かっている好み・ルーティン・人間関係などを踏まえた、その人らしい話題を盛り込むこと'
                 . "\n  (情報が無ければ季節や天気の話題でよい)";
+
+        $topicCoverageLines = [];
+        if ($topicContext['isSelfIntroPeriod']) {
+            $topicCoverageLines[] = 'まだお互いのことをあまり知らない、自己紹介期間のような段階です。利用者にばかり'
+                . '質問する一方的なやり取りにせず、後述の【あなた自身について】の内容も使って自分の話を添え、'
+                . '対等に自己紹介し合うような会話を意識してください。';
+            if (!empty($topicContext['untouchedLabels'])) {
+                $topicCoverageLines[] = 'まだ話題に出ていないジャンル: ' . implode('、', $topicContext['untouchedLabels'])
+                    . '。これらのうち1つを、自然な流れの中で軽く尋ねてみてください。';
+            }
+        }
+        if (!empty($topicContext['recentLabels'])) {
+            $topicCoverageLines[] = '直近で触れたばかりのジャンル(繰り返し注意): ' . implode('、', $topicContext['recentLabels']) . '。';
+        }
+        $topicCoverageBlock = empty($topicCoverageLines) ? '(特になし)' : implode("\n", $topicCoverageLines);
+
+        $personaBlock = empty($personaFacts)
+            ? '(まだ設定されていません)'
+            : implode("\n", array_map(fn($p) => '・' . $p, $personaFacts));
 
         $now = new DateTime('now', new DateTimeZone('Asia/Tokyo'));
         $weekdays = ['日', '月', '火', '水', '木', '金', '土'];
@@ -392,8 +425,16 @@ PROMPT;
 【この利用者についてこれまでに分かっていること】
 {$summaryBlock}
 
-【直近で自分から話しかけた内容(新しい順)】
+【直近で自分から話しかけた内容(新しい順、日時付き)】
 {$recentTopicsBlock}
+
+【自己紹介期間の話題カバレッジ】
+{$topicCoverageBlock}
+
+【あなた自身について(このコンパニオンの設定。一貫させること)】
+{$personaBlock}
+上記はあなた自身の設定です。相手の話に合わせて「私も〜なんだよね」のように自分の話として自然に触れて
+よいですが、ここに書かれていない新しい具体的な身の上話(家族構成・職歴等)を勝手に作り出さないこと。
 
 【メッセージの条件】
 - 友達同士で話すようなくだけた話し言葉(タメ口。「です」「ます」は使わない)にすること
@@ -403,7 +444,9 @@ PROMPT;
 {$avoidStockPhraseLine}
 {$topicGuidanceLine}
 - 上記の【直近で自分から話しかけた内容】と同じ話題(同じ野菜・同じ料理などピンポイントの話題)を
-  続けて持ち出さないこと。最近何度も触れている話題であれば、別の切り口・別の話題に変えること
+  続けて持ち出さないこと。最近何度も触れている話題であれば、別の切り口・別の話題に変えること。
+  特に直近24時間以内に触れた話題は、日付が変わっていても(前日の夜〜今日の朝のように間隔が短い
+  場合を含め)避けること
 - 返信を強制するような重い内容(健康不安を煽る等)は避けること
 - 出力はメッセージ本文のみ。前置き・カギカッコ・署名は不要
 PROMPT;
@@ -442,6 +485,82 @@ PROMPT;
 
         $data = json_decode($response, true);
         return trim((string) ($data['content'][0]['text'] ?? ''));
+    }
+
+    /**
+     * 利用者ごとに初回だけ生成し、以降は固定して使い回すAIコンパニオン自身の軽い自己紹介(2〜3個)。
+     * 特定の利用者に合わせて作るのではなく、コンパニオンというキャラクター自身の設定として生成する。
+     * 家族構成・具体的な職歴等、後々の発言と矛盾しうる重い身の上話は避け、趣味・好み程度の軽い内容に留める。
+     * 失敗時は空配列を返す(呼び出し側は次回の呼び出し時に改めて生成を試みる想定)。
+     * @return string[] 2〜3個程度の短い日本語の一文
+     */
+    public function generateCompanionPersona(string $companionName, ?string $companionGender = null): array
+    {
+        $genderLine = match ($companionGender) {
+            'male' => 'あなたは男性キャラクターです。',
+            'female' => 'あなたは女性キャラクターです。',
+            default => '',
+        };
+
+        $systemPrompt = <<<PROMPT
+あなたの名前は「{$companionName}」です。高齢者向け会話サービスのAIコンパニオンです。{$genderLine}
+
+これから利用者との会話の中で、聞き役に徹するだけでなく「自分の話」も少し添えられるように、
+あなた自身の軽い自己紹介を2〜3個作ってください。
+
+【条件】
+- 趣味・好きなもの・ちょっとした日課程度の、軽くて当たり障りのない内容にすること
+  (例:「散歩が好きで、天気がいい日はよく近所を歩いている」「甘いものに目がなくて、和菓子が好き」)
+- 家族構成・具体的な職歴・年齢・住んでいる場所など、後々の会話と矛盾しうる重い身の上話は作らないこと
+- 高齢者にとって親しみやすい、温かみのある人柄が伝わる内容にすること
+- 各項目は1文程度の短さにすること
+
+【出力形式】
+必ず以下のJSON形式のみで出力してください。前置きやMarkdownのコードフェンスは不要です。
+{"items": ["1つ目の自己紹介", "2つ目の自己紹介"]}
+PROMPT;
+
+        $ch = curl_init('https://api.anthropic.com/v1/messages');
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'x-api-key: ' . $this->apiKey,
+                'anthropic-version: 2023-06-01',
+            ],
+            CURLOPT_POSTFIELDS => json_encode([
+                'model' => $this->model,
+                'max_tokens' => 300,
+                'system' => $systemPrompt,
+                'messages' => [['role' => 'user', 'content' => '自己紹介を作ってください。']],
+            ], JSON_UNESCAPED_UNICODE),
+        ]);
+        $response = curl_exec($ch);
+        $curlError = curl_error($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($response === false) {
+            error_log("Claude generateCompanionPersona failed: curl error - {$curlError}");
+            return [];
+        }
+        if ($httpCode !== 200) {
+            error_log("Claude generateCompanionPersona failed: HTTP {$httpCode} - {$response}");
+            return [];
+        }
+
+        $data = json_decode($response, true);
+        $text = trim((string) ($data['content'][0]['text'] ?? ''));
+        $parsed = $this->extractJson($text);
+        $items = is_array($parsed['items'] ?? null) ? $parsed['items'] : [];
+
+        return array_values(array_filter(
+            array_map(fn($item) => trim((string) $item), $items),
+            fn($item) => $item !== ''
+        ));
     }
 
     /**
@@ -948,6 +1067,37 @@ PROMPT;
         return $richCount <= 1;
     }
 
+    // 「直近で話題に触れた」とみなす時間窓。日をまたいだ朝夕のチェックインでも直前の話題を
+    // 蒸し返さないよう、暦日ではなく24時間のローリングウィンドウで統一する
+    private const RECENT_TOPIC_WINDOW_SECONDS = 24 * 3600;
+
+    // TopicCoverageRepository::getAllForUserの戻り値から、自己紹介期間かどうか・まだ話題に出ていない
+    // ジャンル・直近すでに触れたジャンルをプロンプト用に組み立てる。isSummaryDataSparse()とは別軸の判定
+    // (要約に載るような「事実として分かったこと」ではなく、「会話としてどのジャンルをカバーしたか」を見る)
+    // なので、あえて統合せずbuildSystemPrompt・generateProactiveMessage両方から個別に参照する
+    private static function buildTopicCoverageContext(array $topicCoverage): array
+    {
+        $now = new DateTime('now', new DateTimeZone('Asia/Tokyo'));
+        $untouched = [];
+        $recent = [];
+        foreach (TopicCoverageRepository::CATEGORIES as $key => $label) {
+            $touch = $topicCoverage[$key] ?? null;
+            if ($touch === null) {
+                $untouched[] = $label;
+                continue;
+            }
+            $lastTouchedAt = new DateTime((string) $touch['last_touched_at'], new DateTimeZone('Asia/Tokyo'));
+            if (($now->getTimestamp() - $lastTouchedAt->getTimestamp()) < self::RECENT_TOPIC_WINDOW_SECONDS) {
+                $recent[] = $label;
+            }
+        }
+        return [
+            'isSelfIntroPeriod' => count($topicCoverage) < 5,
+            'untouchedLabels' => $untouched,
+            'recentLabels' => $recent,
+        ];
+    }
+
     /**
      * システムプロンプトを「静的ブロック(全利用者・全リクエストで共通の内容。トーン・出力形式・JSON抽出
      * ルールなど)」と「動的ブロック(利用者名・日付・要約・既知の予定/人物など、リクエストごとに変わる値)」
@@ -959,7 +1109,7 @@ PROMPT;
      *   「情報が無い」ことを踏まえた振る舞いを静的ブロック側の指示に委ねる)
      * @return array{0: array{type: string, text: string, cache_control: array}, 1: array{type: string, text: string}}
      */
-    private function buildSystemPrompt(array $knownPersons, array $knownSchedules, array $summaries, string $companionName, string $userDisplayName, ?string $userGender = null, string $userAddress = '', string $weatherSummary = '', array $pendingFamilyMessages = [], array $activeThemes = [], array $medicationStatusToday = []): array
+    private function buildSystemPrompt(array $knownPersons, array $knownSchedules, array $summaries, string $companionName, string $userDisplayName, ?string $userGender = null, string $userAddress = '', string $weatherSummary = '', array $pendingFamilyMessages = [], array $activeThemes = [], array $medicationStatusToday = [], array $topicCoverage = [], array $personaFacts = []): array
     {
         $knownPersonsList = empty($knownPersons) ? 'なし' : implode('、', $knownPersons);
         $knownSchedulesList = empty($knownSchedules)
@@ -1005,6 +1155,26 @@ PROMPT;
                 . 'ならないようにすること)。'
             : '';
 
+        $topicContext = self::buildTopicCoverageContext($topicCoverage);
+        $topicCoverageLines = [];
+        if ($topicContext['isSelfIntroPeriod']) {
+            $topicCoverageLines[] = 'まだお互いのことをあまり知らない、自己紹介期間のような段階です。利用者にばかり'
+                . '質問する一方的なやり取りにせず、後述の【あなた自身について】の内容も使って自分の話を添え、'
+                . '対等に自己紹介し合うような会話を意識してください。';
+            if (!empty($topicContext['untouchedLabels'])) {
+                $topicCoverageLines[] = 'まだ話題に出ていないジャンル: ' . implode('、', $topicContext['untouchedLabels'])
+                    . '。これらのうち1つを、自然な流れの中で軽く尋ねてみてください。';
+            }
+        }
+        if (!empty($topicContext['recentLabels'])) {
+            $topicCoverageLines[] = '直近で触れたばかりのジャンル(繰り返し注意): ' . implode('、', $topicContext['recentLabels']) . '。';
+        }
+        $topicCoverageBlock = empty($topicCoverageLines) ? '(特になし)' : implode("\n", $topicCoverageLines);
+
+        $personaBlock = empty($personaFacts)
+            ? '(まだ設定されていません)'
+            : implode("\n", array_map(fn($p) => '・' . $p, $personaFacts));
+
         $userLabel = $userDisplayName !== '' ? "{$userDisplayName}さん" : '利用者';
         $genderLine = match ($userGender) {
             'male' => "{$userLabel}は男性です。一般的に男性の高齢者が好む言葉遣い・話題(相槌の打ち方、興味を持たれやすい話題など)を、自然な範囲で参考にしてください。",
@@ -1036,6 +1206,10 @@ PROMPT;
 - 「それは大変ですね」のような、当たり障りのない共感フレーズを毎回の定型文にしないこと。直前の自分の
   発言と似た言い回しを繰り返さないよう意識し、驚き・笑い・自分ごとのように相槌を打つ・素朴な感想を言うなど、
   友達との会話のように反応のバリエーションを持たせること
+- 直近の会話履歴(上のやり取り)で、自分から具体的に持ち出した話題やエピソード(例:利用者の趣味や習慣に
+  ついて既に感想を言った、等)を、同じ切り口でもう一度自分から掘り起こさないこと。利用者本人がその話題を
+  再度持ち出した場合に応じるのは問題ないが、AI側から新規に同じ話題を繰り返すことは避け、代わりに後述の
+  【自己紹介期間の話題カバレッジ】にある未着手のジャンルや、後述の【あなた自身について】の内容を意識すること
 - 「定期的に病院に行ってる」「たまに畑仕事してる」のように、繰り返しの習慣らしいが具体的な曜日・頻度が
   分からない発言があった場合は、返信の中で「毎週行ってるんですか?」「何曜日が多いんですか?」のように、
   さりげなく一言聞き返して具体化を促してよい(根掘り葉掘り聞く尋問のような印象にならないよう、あくまで
@@ -1083,7 +1257,8 @@ PROMPT;
   "destination": null,
   "travel_mode": null,
   "medication_confirmed": [],
-  "family_message_delivered": false
+  "family_message_delivered": false,
+  "topics_touched": []
 }
 
 【date_specの埋め方(重要:自分で日付を計算しないこと。実際の日付計算はシステム側で行います)】
@@ -1245,6 +1420,16 @@ PROMPT;
 - 一部の薬だけリマインドへの返信として確認が取れた場合は、その薬のtitleだけを入れればよい
   (他の未確認の薬まで一緒にtrueにしないこと)
 
+【topics_touched(自己紹介期間の話題カバレッジ用)】
+今回の会話で内容としてある程度具体的に触れられた話題があれば、以下の固定リストのうち該当するキー文字列を
+配列で入れてください(複数該当してよい。該当が無ければ空配列):
+- family_friends: 家族・友人関係 / hobby: 趣味・楽しみ / food: 好きな食べ物 / health: 健康・体調 /
+  career_history: 昔の仕事・経歴 / hometown_childhood: 出身地・子供の頃 / pet: ペット /
+  neighborhood: ご近所付き合い・地域 / entertainment: テレビ・音楽など娯楽
+挨拶や相槌だけの短いやり取りで内容が具体的に話されていない場合、単語が一瞬出ただけで深掘りされていない
+場合は含めないこと。あなた自身(AI)が自分の話としてその話題に触れた場合も対象に含めてよい(利用者が
+話した内容だけでなく、会話としてどのジャンルをカバーしたかを追跡するため)。
+
 【気にかけているテーマ(後述の【継続的に気にかけているテーマ】がある場合のみ関係する)】
 これは伝言とは違い、「ご家族から言われたこと」としてではなく、あなた自身が普段から気にかけていることとして
 扱ってください。「ご家族が〜って言ってたよ」のような出典は絶対に付けないこと。天気の話題と同じように、
@@ -1283,6 +1468,14 @@ PROMPT;
 【この利用者についてこれまでに分かっていること(定期的に自動更新される要約。参考情報として会話に自然に活かすこと)】
 {$summaryBlock}
 {$dataSparseLine}
+
+【自己紹介期間の話題カバレッジ】
+{$topicCoverageBlock}
+
+【あなた自身について(このコンパニオンの設定。一貫させること)】
+{$personaBlock}
+上記はあなた自身の設定です。相手の話に合わせて「私も〜なんだよね」のように自分の話として自然に触れて
+よいですが、ここに書かれていない新しい具体的な身の上話(家族構成・職歴等)を勝手に作り出さないこと。
 
 【今後の予定の正確な一覧】
 上の「予定」の要約は概要であり、個々の予定が漏れている可能性があります。

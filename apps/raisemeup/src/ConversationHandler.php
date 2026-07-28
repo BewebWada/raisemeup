@@ -13,6 +13,7 @@ require_once __DIR__ . '/FamilyMessageRepository.php';
 require_once __DIR__ . '/FamilyThemeRepository.php';
 require_once __DIR__ . '/SubscriptionRepository.php';
 require_once __DIR__ . '/SummaryRepository.php';
+require_once __DIR__ . '/TopicCoverageRepository.php';
 require_once __DIR__ . '/WeatherClient.php';
 
 class ConversationHandler
@@ -32,6 +33,7 @@ class ConversationHandler
     private FamilyThemeRepository $familyThemeRepo;
     private SubscriptionRepository $subscriptionRepo;
     private SummaryRepository $summaryRepo;
+    private TopicCoverageRepository $topicCoverageRepo;
     private WeatherClient $weatherClient;
 
     // カテゴリごとの通知文言。ここに無いカテゴリは「気になる会話」の総称でまとめる
@@ -70,7 +72,27 @@ class ConversationHandler
         $this->familyThemeRepo = new FamilyThemeRepository($pdo);
         $this->subscriptionRepo = new SubscriptionRepository($pdo);
         $this->summaryRepo = new SummaryRepository($pdo);
+        $this->topicCoverageRepo = new TopicCoverageRepository($pdo);
         $this->weatherClient = new WeatherClient($pdo);
+    }
+
+    // 初回のみ、AIコンパニオン自身の軽い自己紹介(2〜3個)を生成して保存する(以降は固定して使い回す)。
+    // LINE連携時ではなくここで遅延生成することで、新規ユーザーだけでなくこの機能導入前からの
+    // 既存ユーザーにも、次の会話をきっかけに同じ経路で自然に行き渡る
+    private function ensureCompanionPersona(array $user): array
+    {
+        if (!empty($user['companion_persona'])) {
+            $decoded = json_decode((string) $user['companion_persona'], true);
+            return is_array($decoded) ? $decoded : [];
+        }
+
+        $companionName = $user['companion_name'] ?: 'たより';
+        $companionGender = ($user['companion_gender'] ?? null) === 'random' ? null : $user['companion_gender'];
+        $facts = $this->claudeClient->generateCompanionPersona($companionName, $companionGender);
+        if (!empty($facts)) {
+            $this->userRepo->setCompanionPersona((int) $user['id'], $facts);
+        }
+        return $facts;
     }
 
     public function handleTextMessage(array $event): void
@@ -117,6 +139,8 @@ class ConversationHandler
         $knownPersons = $this->personRepo->getNamesByUserId((int) $user['id'], 30);
         $knownSchedules = $this->scheduleRepo->getUpcomingDetailsByUserId((int) $user['id'], 15);
         $summaries = $this->summaryRepo->getAllForUser((int) $user['id']);
+        $topicCoverage = $this->topicCoverageRepo->getAllForUser((int) $user['id']);
+        $personaFacts = $this->ensureCompanionPersona($user);
         $companionName = $user['companion_name'] ?: 'たより';
         $weatherSummary = $this->getWeatherSummaryForAddress((string) $user['address']);
         $pendingFamilyMessages = $this->familyMessageRepo->getPendingForUser((int) $user['id']);
@@ -141,7 +165,9 @@ class ConversationHandler
             $weatherSummary,
             $pendingFamilyMessages,
             $activeThemes,
-            $medicationStatusToday
+            $medicationStatusToday,
+            $topicCoverage,
+            $personaFacts
         );
 
         // ④.5 ご家族からの伝言を今回の返信で伝えられたと判定された場合、配信済みにして家族へ確認連絡を送る
@@ -170,6 +196,9 @@ class ConversationHandler
                 }
             }
         }
+
+        // ⑤.36 自己紹介期間の話題カバレッジ用に、今回の会話で触れられたジャンルを記録する
+        $this->topicCoverageRepo->touch((int) $user['id'], $result['topics_touched'] ?? []);
 
         // ⑤.4 「夜9時以降は連絡しないで」等の静かにしてほしい時間帯の申告があれば保存する
         // (send_proactive_messages.phpが、システム側からの声かけを控えるかどうかの判定に使う)

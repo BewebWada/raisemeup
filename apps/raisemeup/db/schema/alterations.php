@@ -114,4 +114,11 @@ return [
     'schedules.is_medication' => "ALTER TABLE schedules
         ADD COLUMN IF NOT EXISTS is_medication BOOLEAN NOT NULL DEFAULT FALSE
         COMMENT '決まった時刻の服薬リマインド+確認の対象かどうか' AFTER recurrence_day_of_month;",
+
+    // 初回だけ自動生成して以降固定する、AIコンパニオン自身の軽い自己紹介(2〜3個の短い文の配列)。
+    // 会話中に自分の話として使うことで、利用者から聞き出すだけの一方的なやり取りにならないようにする。
+    // 将来項目を増やしても既存データの移行が不要なようJSON型にしている
+    'users.companion_persona' => "ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS companion_persona JSON DEFAULT NULL
+        COMMENT '初回に一度だけ自動生成し以降固定するAIコンパニオン自身の軽い自己紹介(短い文の配列)' AFTER companion_name;",
 ];
