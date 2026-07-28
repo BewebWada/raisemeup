@@ -86,4 +86,13 @@ class UserRepository
             "UPDATE users SET line_user_id = ?, invite_code = NULL, status = 'active', onboarded_at = NOW() WHERE id = ?"
         )->execute([$lineUserId, $id]);
     }
+
+    // 会話中に「夜9時以降は話しかけないで」等の申告があった場合に、システムからの声かけ(send_proactive_messages.php)を
+    // 控える時間帯を保存する。両方nullを渡すと解除(いつでも声かけしてよい状態に戻す)になる
+    public function updateQuietHours(int $id, ?string $start, ?string $end): void
+    {
+        $this->pdo->prepare(
+            'UPDATE users SET quiet_hours_start = ?, quiet_hours_end = ? WHERE id = ?'
+        )->execute([$start, $end, $id]);
+    }
 }

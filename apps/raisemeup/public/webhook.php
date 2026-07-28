@@ -27,9 +27,16 @@ $events = json_decode($body, true)['events'] ?? [];
 $dbConfig = require __DIR__ . '/../db/config.php';
 $pdo = Database::connect($dbConfig);
 
+// リスク検知時の家族向け通知は、利用者本人とのやり取り用チャネルとは別の「TAYORIサポート」から送る
+$familyLineClient = new LineClient(
+    Config::get('LINE_FAMILY_CHANNEL_SECRET'),
+    Config::get('LINE_FAMILY_CHANNEL_ACCESS_TOKEN')
+);
+
 $handler = new ConversationHandler(
     $pdo,
     $lineClient,
+    $familyLineClient,
     new ClaudeClient(Config::get('ANTHROPIC_API_KEY'), Config::get('CLAUDE_MODEL'))
 );
 
@@ -39,6 +46,12 @@ foreach ($events as $event) {
             $handler->handleTextMessage($event);
         } catch (Throwable $e) {
             error_log('Webhook event handling failed: ' . $e->getMessage());
+        }
+    } elseif ($event['type'] === 'message' && $event['message']['type'] === 'location') {
+        try {
+            $handler->handleLocationMessage($event);
+        } catch (Throwable $e) {
+            error_log('Webhook location event handling failed: ' . $e->getMessage());
         }
     }
     // sticker, image等は今回スコープ外。ログだけ残すか無視でよい
