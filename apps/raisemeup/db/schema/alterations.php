@@ -114,4 +114,11 @@ return [
     'schedules.is_medication' => "ALTER TABLE schedules
         ADD COLUMN IF NOT EXISTS is_medication BOOLEAN NOT NULL DEFAULT FALSE
         COMMENT '決まった時刻の服薬リマインド+確認の対象かどうか' AFTER recurrence_day_of_month;",
+
+    // 利用者本人と同様、ご家族側もLINEログイン(line_user_id)だけでなく友だち追加までを必須にするため、
+    // 「友だち追加(followイベント)を確認できた時刻」を別途持たせる。line_user_idはOAuth成功時点で
+    // 設定されるが、友だち追加していない間はここがNULLのままなので、放置判定・通知対象の判定に使う
+    'family_accounts.friend_confirmed_at' => "ALTER TABLE family_accounts
+        ADD COLUMN IF NOT EXISTS friend_confirmed_at DATETIME DEFAULT NULL
+        COMMENT '友だち追加(followイベント)が確認できた時刻。未確認ならNULL' AFTER line_user_id;",
 ];

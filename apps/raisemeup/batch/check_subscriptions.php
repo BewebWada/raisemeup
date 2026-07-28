@@ -114,36 +114,48 @@ foreach ($expired as $row) {
 }
 echo "[OK] subscriptions marked trial_expired: " . count($expired) . "\n";
 
-// --- 3. LINE未連携のまま放置された申込みの検知 ---
-// 本人(users)が一度もLINE連携しないまま(status='pending')ABANDON_TIMEOUT_DAYS日を超えた契約は、
-// 一度も使われていないサービスへの課金を防ぐためStripe契約をキャンセルし、再申込みができるよう
-// family_accounts.emailを解放する(UNIQUE制約が永久に再申込みを妨げないように)。
+// --- 3. LINE連携(友だち追加まで)が放置された申込みの検知 ---
+// 本人(users.status='pending')・ご家族(family_accounts.line_user_id IS NULL、または
+// LINEログインはしたが友だち追加がfriend_confirmed_at IS NULLでまだ確認できていない)の
+// どちらか一方でも連携が完了しないままABANDON_TIMEOUT_DAYS日を超えた契約は、一度も使われていない
+// サービスへの課金を防ぐためStripe契約をキャンセルし、再申込みができるようfamily_accounts.emailを
+// 解放する(UNIQUE制約が永久に再申込みを妨げないように)。本人・家族とも「LINEログイン+友だち追加」
+// までが必須のため、どちらか片方だけ済んでいても対象になる。
 $stripeClient = new StripeClient(Config::get('STRIPE_SECRET_KEY', ''));
 $subscriptionRepo = new SubscriptionRepository($pdo);
 $familyRepo = new FamilyAccountRepository($pdo);
 $resumeBaseUrl = rtrim(Config::get('APP_BASE_URL', ''), '/') . '/apply/resume.php?u=';
 
+$familyIncompleteCondition = '(fa.line_user_id IS NULL OR fa.friend_confirmed_at IS NULL)';
+
 // 3a. 期限の1日前のリマインド(LINE連携ページへの再開リンクを送る)
 $stmt = $pdo->query(
     "SELECT u.invite_code AS user_invite_code, u.display_name AS user_display_name,
-            fa.email AS family_email, fa.name AS family_name
+            fa.email AS family_email, fa.name AS family_name,
+            (u.status = 'pending') AS user_pending, " . $familyIncompleteCondition . " AS family_pending
      FROM subscriptions s
      JOIN users u ON u.id = s.user_id
      JOIN family_accounts fa ON fa.id = s.family_account_id
-     WHERE s.status = 'trial' AND u.status = 'pending'
+     WHERE s.status = 'trial' AND (u.status = 'pending' OR " . $familyIncompleteCondition . ")
        AND DATE(s.created_at) = DATE_SUB(CURDATE(), INTERVAL " . (ABANDON_TIMEOUT_DAYS - 1) . " DAY)"
 );
 $abandonReminderCount = 0;
 foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-    if (empty($row['family_email']) || empty($row['user_invite_code'])) {
+    if (empty($row['family_email'])) {
         continue;
     }
     $displayName = $row['user_display_name'] ?: 'ご利用者様';
+    $pendingWho = ((bool) $row['user_pending'] && (bool) $row['family_pending'])
+        ? "{$displayName}様・ご家族様どちらも"
+        : ((bool) $row['user_pending'] ? "{$displayName}様の" : 'ご家族様の');
     $subject = '【TAYORI】LINE連携がまだ完了していません';
     $body = "{$row['family_name']}様\n\n"
-        . "TAYORIへのお申込みありがとうございます。{$displayName}様のLINE連携がまだ完了していないようです。\n"
-        . "このまま連携が完了しない場合、明日にはお申込みを一旦キャンセルさせていただきます。\n\n"
-        . "以下のリンクから、LINE連携の手続きを再開できます。\n" . $resumeBaseUrl . urlencode($row['user_invite_code']) . "\n\n"
+        . "TAYORIへのお申込みありがとうございます。{$pendingWho}LINE連携(友だち追加を含む)がまだ完了していないようです。\n"
+        . "ご本人・ご家族様どちらも、LINEログインと友だち追加の両方が必須のため、このまま完了しない場合、"
+        . "明日にはお申込みを一旦キャンセルさせていただきます。\n\n"
+        . (!empty($row['user_invite_code'])
+            ? "以下のリンクから、LINE連携の手続きを再開できます。\n" . $resumeBaseUrl . urlencode($row['user_invite_code']) . "\n\n"
+            : '')
         . "ご不明な点はsupport@tayori-net.jpまでご連絡ください。";
     notifyFamilyEmail($mailClient, $row['family_email'], $subject, $body);
     $abandonReminderCount++;
@@ -154,11 +166,12 @@ echo "[OK] abandonment reminder sent: {$abandonReminderCount}\n";
 // (課金停止を確認できていないのにemailを解放してしまうと、二重にサービスを使われる余地が生まれるため)
 $stmt = $pdo->query(
     "SELECT s.id, s.payment_customer_ref, u.display_name AS user_display_name,
-            fa.id AS family_id, fa.email AS family_email, fa.name AS family_name
+            fa.id AS family_id, fa.email AS family_email, fa.name AS family_name,
+            (u.status = 'pending') AS user_pending, " . $familyIncompleteCondition . " AS family_pending
      FROM subscriptions s
      JOIN users u ON u.id = s.user_id
      JOIN family_accounts fa ON fa.id = s.family_account_id
-     WHERE s.status = 'trial' AND u.status = 'pending'
+     WHERE s.status = 'trial' AND (u.status = 'pending' OR " . $familyIncompleteCondition . ")
        AND s.created_at < DATE_SUB(NOW(), INTERVAL " . ABANDON_TIMEOUT_DAYS . " DAY)"
 );
 $abandonedCount = 0;
@@ -177,9 +190,12 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
 
     if (!empty($row['family_email'])) {
         $displayName = $row['user_display_name'] ?: 'ご利用者様';
+        $pendingWho = ((bool) $row['user_pending'] && (bool) $row['family_pending'])
+            ? "{$displayName}様・ご家族様どちらの"
+            : ((bool) $row['user_pending'] ? "{$displayName}様の" : 'ご家族様の');
         $subject = '【TAYORI】お申込みを一旦キャンセルしました';
         $body = "{$row['family_name']}様\n\n"
-            . "{$displayName}様のLINE連携が完了しないまま" . ABANDON_TIMEOUT_DAYS . "日が経過したため、"
+            . "{$pendingWho}LINE連携(友だち追加を含む)が完了しないまま" . ABANDON_TIMEOUT_DAYS . "日が経過したため、"
             . "お申込みを一旦キャンセルいたしました。料金は発生しておりません。\n\n"
             . "改めてご利用になりたい場合は、お手数ですが再度お申込みください。\n"
             . rtrim(Config::get('APP_BASE_URL', ''), '/') . "/apply/\n\n"

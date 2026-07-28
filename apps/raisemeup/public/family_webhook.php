@@ -44,6 +44,14 @@ $subscriptionRepo = new SubscriptionRepository($pdo);
 $claudeClient = new ClaudeClient(Config::get('ANTHROPIC_API_KEY'), Config::get('CLAUDE_MODEL'));
 
 foreach ($events as $event) {
+    if (($event['type'] ?? '') === 'follow') {
+        try {
+            handleFamilyFollowEvent($familyRepo, $lineClient, $event);
+        } catch (Throwable $e) {
+            error_log('Family webhook follow event handling failed: ' . $e->getMessage());
+        }
+        continue;
+    }
     if (($event['type'] ?? '') !== 'message' || ($event['message']['type'] ?? '') !== 'text') {
         continue;
     }
@@ -56,6 +64,33 @@ foreach ($events as $event) {
 
 http_response_code(200);
 echo 'OK';
+
+/**
+ * ご家族側の友だち追加(followイベント)を処理する。
+ * LINEログイン連携は済んでいるが、その時点では友だち追加していなかった場合に、
+ * 後からQRコード等で友だち追加した際、ここで初めて連携完了(friend_confirmed_at)にする
+ * (line_login_callback.php側で友だち追加済みだった場合の処理と同じ)。
+ */
+function handleFamilyFollowEvent(FamilyAccountRepository $familyRepo, LineClient $lineClient, array $event): void
+{
+    $lineUserId = $event['source']['userId'] ?? '';
+    if ($lineUserId === '') {
+        return;
+    }
+
+    $family = $familyRepo->findByLineUserId($lineUserId);
+    // LINEログイン未連携、または既に連携完了済み(再フォロー等)は無視する
+    if ($family === null || $family['friend_confirmed_at'] !== null) {
+        return;
+    }
+
+    $familyRepo->markFriendConfirmed((int) $family['id']);
+    $familyName = $family['name'] ?: 'ご家族';
+    $lineClient->push(
+        $lineUserId,
+        "{$familyName}様、登録が完了しました。\n無料期間の終了案内など、お支払いに関するご連絡をこちらのアカウントからお送りします。"
+    );
+}
 
 function handleFamilyMessage(
     FamilyAccountRepository $familyRepo,
@@ -74,7 +109,10 @@ function handleFamilyMessage(
     if ($existing === null) {
         $pendingFamily = $familyRepo->findByInviteCode($messageText);
         if ($pendingFamily !== null) {
+            // この経路はLINEからメッセージが届いている時点で友だち追加済みであることが保証されているため、
+            // followイベントを待たずその場で連携完了(friend_confirmed_at)にしてよい
             $familyRepo->linkLineUserId((int) $pendingFamily['id'], $lineUserId);
+            $familyRepo->markFriendConfirmed((int) $pendingFamily['id']);
             $lineClient->reply($replyToken, '登録が完了しました。無料期間の終了案内など、お支払いに関するご連絡をこちらのアカウントからお送りします。');
             return;
         }

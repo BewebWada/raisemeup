@@ -58,12 +58,22 @@ class FamilyAccountRepository
         return $row ?: null;
     }
 
-    // 招待コードでのLINE連携が成功した際に呼ぶ。コードは使い切りなのでクリアする。
+    // LINEログイン(OAuth)成功時に呼ぶ。コードは使い切りなのでクリアする。
+    // 利用者本人と同様、友だち追加は別途followイベントで確認できて初めて完了とするため、
+    // ここではfriend_confirmed_atは触らない(未追加のまま放置されると放置判定の対象になる)
     public function linkLineUserId(int $id, string $lineUserId): void
     {
         $this->pdo->prepare(
             'UPDATE family_accounts SET line_user_id = ?, invite_code = NULL WHERE id = ?'
         )->execute([$lineUserId, $id]);
+    }
+
+    // 友だち追加(またはメッセージ到達=友だち確定)が確認できて初めて呼ぶ
+    public function markFriendConfirmed(int $id): void
+    {
+        $this->pdo->prepare(
+            'UPDATE family_accounts SET friend_confirmed_at = NOW() WHERE id = ?'
+        )->execute([$id]);
     }
 
     // 放置(未連携タイムアウト)による自動キャンセル時、emailの一意制約が再申込みを永久に妨げないよう解放する
@@ -87,14 +97,15 @@ class FamilyAccountRepository
         return $row ?: null;
     }
 
-    // リスク検知の通知先。LINE連携済み(通知チャネルを受け取れる)の有効な紐づけのみ、通知順位順に返す
+    // リスク検知の通知先。友だち追加まで確認できている(実際にLINEを受け取れる)有効な紐づけのみ、通知順位順に返す
     public function getNotifiableForUser(int $userId): array
     {
         $stmt = $this->pdo->prepare(
             'SELECT fa.id, fa.name, fa.line_user_id
              FROM family_accounts fa
              JOIN user_family_links l ON l.family_account_id = fa.id
-             WHERE l.user_id = ? AND l.is_active = 1 AND fa.line_user_id IS NOT NULL
+             WHERE l.user_id = ? AND l.is_active = 1
+               AND fa.line_user_id IS NOT NULL AND fa.friend_confirmed_at IS NOT NULL
              ORDER BY l.notify_priority ASC'
         );
         $stmt->execute([$userId]);

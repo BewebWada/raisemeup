@@ -39,8 +39,11 @@ try {
     $familyRepo->linkLineUserId((int) $pending['id'], $profile['userId']);
     $_SESSION['line_friend_flag']['family'] = $isFriend;
 
-    // 友だち追加だけではLINEのトーク一覧に何も表示されないため、こちらから最初のメッセージを送っておく
+    // 友だち追加も必須のため、ここで確認できた場合だけ本当の意味で連携完了(friend_confirmed_at)にする。
+    // まだ友だち追加していない場合は、後からfamily_webhook.php側のfollowイベントで確認できた時点で
+    // handleFamilyFollowEventが同じ処理を行う
     if ($isFriend) {
+        $familyRepo->markFriendConfirmed((int) $pending['id']);
         $familyName = $pending['name'] ?: 'ご家族';
         $lineClient = new LineClient(Config::get('LINE_FAMILY_CHANNEL_SECRET'), Config::get('LINE_FAMILY_CHANNEL_ACCESS_TOKEN'));
         $lineClient->push(
