@@ -43,5 +43,41 @@
     "risk_level": "low",
     "description": "初出の人物や連絡先に関する言及(様子見レベル)",
     "is_active": true
+  },
+  {
+    "pattern_name": "体調急変の訴え",
+    "category": "health_concern",
+    "keywords": ["倒れた", "意識が", "救急車", "息ができない", "動けない", "呼吸が苦しい"],
+    "regex_pattern": null,
+    "risk_level": "high",
+    "description": "緊急性の高い体調の急変を示す表現",
+    "is_active": true
+  },
+  {
+    "pattern_name": "体調不良・痛みの訴え",
+    "category": "health_concern",
+    "keywords": ["体調が悪い", "気分が悪い", "しんどい", "めまい", "吐き気", "熱がある", "だるい", "食欲がない"],
+    "regex_pattern": null,
+    "risk_level": "medium",
+    "description": "体調不良・痛み等、健康に関するネガティブな発言",
+    "is_active": true
+  },
+  {
+    "pattern_name": "事故・怪我",
+    "category": "safety_concern",
+    "keywords": ["転んだ", "骨折", "怪我をした", "火事", "煙が"],
+    "regex_pattern": null,
+    "risk_level": "high",
+    "description": "転倒・火災等、身体的な危険につながる出来事の言及",
+    "is_active": true
+  },
+  {
+    "pattern_name": "不審者・トラブルへの遭遇",
+    "category": "safety_concern",
+    "keywords": ["泥棒", "空き巣", "怖い人", "脅された", "つきまとわれ"],
+    "regex_pattern": null,
+    "risk_level": "medium",
+    "description": "犯罪被害・トラブルの可能性を示す発言",
+    "is_active": true
   }
 ]

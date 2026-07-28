@@ -26,6 +26,19 @@ class SubscriptionRepository
         return $row ?: null;
     }
 
+    // プラン別機能出し分け(例: 家族へのリスク通知はfamily_watch以上限定)用。
+    // 現状は利用者1人につき契約は1件のみ作られる想定なので、最新の1件のプランをそのまま「現在のプラン」として扱う
+    public function getCurrentPlanCodeForUser(int $userId): ?string
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT p.code FROM subscriptions s JOIN plans p ON p.id = s.plan_id
+             WHERE s.user_id = ? ORDER BY s.id DESC LIMIT 1'
+        );
+        $stmt->execute([$userId]);
+        $code = $stmt->fetchColumn();
+        return $code !== false ? (string) $code : null;
+    }
+
     // payment_customer_refにはStripeのSubscription ID(sub_...)を保持する
     public function findByStripeSubscriptionId(string $stripeSubscriptionId): ?array
     {
