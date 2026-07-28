@@ -1,23 +1,26 @@
 [
   {
     "code": "standard",
-    "name": "スタンダード",
+    "name": "寄り添いベーシック",
     "price_yen": 980,
-    "description": "基本の見守り会話プラン",
-    "is_active": true
+    "description": "毎日の会話+週1回、ご家族に届く近況ダイジェスト",
+    "is_active": true,
+    "coming_soon": 0
   },
   {
     "code": "family_watch",
-    "name": "ファミリー見守り",
+    "name": "寄り添いスタンダード",
     "price_yen": 1980,
-    "description": "家族への通知・共有機能を含むプラン",
-    "is_active": true
+    "description": "見守りアラート・安否チェックインで、ご家族にも安心を",
+    "is_active": true,
+    "coming_soon": 0
   },
   {
     "code": "premium_medical",
-    "name": "プレミアム(医療連携)",
+    "name": "寄り添いプレミアム",
     "price_yen": 2980,
-    "description": "医療・介護関係者との連携機能を含む上位プラン",
-    "is_active": true
+    "description": "近日公開予定。医療・介護関係者とも連携できる、より手厚い寄り添いプランをご用意しています。",
+    "is_active": true,
+    "coming_soon": 1
   }
 ]
