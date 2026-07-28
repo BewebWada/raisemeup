@@ -11,7 +11,7 @@ class PlanRepository
     public function getActivePlans(): array
     {
         $stmt = $this->pdo->query(
-            'SELECT id, code, name, price_yen, description, stripe_price_id FROM plans WHERE is_active = 1 ORDER BY price_yen ASC'
+            'SELECT id, code, name, price_yen, description, stripe_price_id, coming_soon FROM plans WHERE is_active = 1 ORDER BY price_yen ASC'
         );
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }

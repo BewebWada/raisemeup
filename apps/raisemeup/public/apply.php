@@ -2,14 +2,14 @@
 require_once __DIR__ . '/../src/Config.php';
 require_once __DIR__ . '/../src/UserRepository.php';
 require_once __DIR__ . '/../src/FamilyAccountRepository.php';
+require_once __DIR__ . '/../src/LineLoginClient.php';
 require_once __DIR__ . '/../src/PlanRepository.php';
 require_once __DIR__ . '/../src/SubscriptionRepository.php';
 require_once __DIR__ . '/../src/StripeClient.php';
-require_once __DIR__ . '/../src/ClaudeClient.php';
+require_once __DIR__ . '/../src/Layout.php';
+require_once __DIR__ . '/../src/ApplyDoneView.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Database.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
-
-const TRIAL_DAYS = 10;
 
 Env::load(__DIR__ . '/../../../.env');
 session_start();
@@ -22,29 +22,32 @@ if (empty($_SESSION['apply_csrf_token'])) {
     $_SESSION['apply_csrf_token'] = bin2hex(random_bytes(32));
 }
 
-// --- 申込完了画面(POST→Stripe Checkout→リダイレクト後のGET、結果はセッションに一時保存したものを1回だけ表示) ---
+// --- 申込完了画面(POST→Stripe Checkout→リダイレクト後のGET) ---
+// LINEログインでのステップ連携(①利用者→②ご家族)を挟んで何度も再表示されるため、
+// フォーム再送信防止用のcsrf_tokenとは違いここではセッションから消さずに残す
 if (isset($_GET['done']) && !empty($_SESSION['apply_result'])) {
-    $result = $_SESSION['apply_result'];
-    unset($_SESSION['apply_result']);
-    renderDone($result, false);
+    renderDone((int) $_SESSION['apply_result']['user_id'], (int) $_SESSION['apply_result']['family_id'], $pdo, false, (string) ($_GET['line_error'] ?? ''));
     exit;
 }
 
 // Stripe Checkoutを利用者が途中でキャンセルした場合。トライアル自体は既に作成済みなので、
 // 支払い未登録である旨だけ伝えて通常のトライアル案内を表示する(サービス利用は妨げない)
 if (isset($_GET['cancelled']) && !empty($_SESSION['apply_result'])) {
-    $result = $_SESSION['apply_result'];
-    unset($_SESSION['apply_result']);
-    renderDone($result, true);
+    renderDone((int) $_SESSION['apply_result']['user_id'], (int) $_SESSION['apply_result']['family_id'], $pdo, true, (string) ($_GET['line_error'] ?? ''));
     exit;
 }
 
 $errors = [];
 $formValues = [
     'family_name' => '', 'family_email' => '', 'family_phone' => '',
-    'user_display_name' => '', 'user_phone' => '', 'user_address' => '',
-    'user_birthdate' => '', 'relation' => '', 'plan_id' => '', 'companion_gender' => 'random',
+    'user_display_name' => '', 'user_phone' => '', 'user_zip' => '', 'user_address' => '',
+    'user_birthdate' => '', 'user_gender' => '', 'relation' => '', 'plan_id' => '', 'companion_gender' => 'random',
 ];
+
+// トップページの料金プランカードから「このプランで申し込む」で来た場合、該当プランを選択済みにしておく
+if ($_SERVER['REQUEST_METHOD'] !== 'POST' && isset($_GET['plan_id'])) {
+    $formValues['plan_id'] = trim((string) $_GET['plan_id']);
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ハニーポット: 人間には見えない欄が埋まっていればボット判定し、DB操作はせず成功したふりをして終了する
@@ -63,16 +66,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $activePlans = $planRepo->getActivePlans();
-    $activePlanIds = array_map(fn($p) => (string) $p['id'], $activePlans);
+    // coming_soonなプランは表示はするが、申込みでは選択できないようにする(サービス開始前のため)
+    $selectablePlans = array_filter($activePlans, fn($p) => !$p['coming_soon']);
+    $activePlanIds = array_map(fn($p) => (string) $p['id'], $selectablePlans);
 
     if ($formValues['family_name'] === '') {
         $errors[] = 'お申込者(ご家族)様のお名前を入力してください。';
     }
+    $duplicateFamily = null;
     if ($formValues['family_email'] !== '' && !filter_var($formValues['family_email'], FILTER_VALIDATE_EMAIL)) {
         $errors[] = 'メールアドレスの形式が正しくありません。';
+    } elseif ($formValues['family_email'] !== '') {
+        // family_accounts.emailはUNIQUEなので、二重送信(戻る操作での再送信等)や同一メールでの再申込みを
+        // ここで検知し、DB例外による汎用エラーではなく専用の案内を出す
+        $duplicateFamily = (new FamilyAccountRepository($pdo))->findByEmail($formValues['family_email']);
     }
     if ($formValues['user_display_name'] === '') {
         $errors[] = 'ご利用者様(ご本人)のお名前・呼び名を入力してください。';
+    }
+    // ハイフンありなし両方許容し、DBには数字7桁のみを保存する
+    $formValues['user_zip'] = preg_replace('/[^0-9]/', '', $formValues['user_zip']);
+    if ($formValues['user_zip'] !== '' && strlen($formValues['user_zip']) !== 7) {
+        $errors[] = '郵便番号は7桁の数字で入力してください。';
     }
     if ($formValues['user_birthdate'] !== '') {
         $d = DateTime::createFromFormat('Y-m-d', $formValues['user_birthdate']);
@@ -86,8 +101,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!in_array($formValues['companion_gender'], ['male', 'female', 'random'], true)) {
         $errors[] = '話し相手の性別を選択してください。';
     }
+    if ($formValues['user_gender'] !== '' && !in_array($formValues['user_gender'], ['male', 'female'], true)) {
+        $errors[] = 'ご利用者様の性別の指定が正しくありません。';
+    }
 
-    if (empty($errors)) {
+    if (empty($errors) && $duplicateFamily === null) {
         $selectedPlan = $planRepo->find((int) $formValues['plan_id']);
 
         try {
@@ -106,8 +124,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $user = $userRepo->createPending([
                 'display_name' => $formValues['user_display_name'],
                 'phone' => $formValues['user_phone'],
+                'postal_code' => $formValues['user_zip'],
                 'address' => $formValues['user_address'],
                 'birthdate' => $formValues['user_birthdate'],
+                'gender' => $formValues['user_gender'],
                 'companion_gender' => $formValues['companion_gender'],
             ]);
 
@@ -120,29 +140,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $pdo->commit();
 
-            // 名前決定はトライアル契約の確定とは独立した処理なので、失敗してもここまでのDB確定はロールバックしない
-            // (generateCompanionName自体がAPI失敗時に固定名へフォールバックするため、実質必ず何かの名前が付くが、
-            // 保存(DB書き込み)自体が失敗する可能性もあるので、ここも独立したtry/catchで囲み、既に確定した
-            // トライアルを「エラー」として家族に見せてしまわないようにする)
-            $companionName = 'Raise Me Up';
-            try {
-                $claudeClient = new ClaudeClient(Config::get('ANTHROPIC_API_KEY'), Config::get('CLAUDE_MODEL'));
-                $companionName = $claudeClient->generateCompanionName($formValues['companion_gender']);
-                $userRepo->setCompanionName((int) $user['id'], $companionName);
-            } catch (Throwable $e) {
-                error_log('Companion name generation/save failed: ' . $e->getMessage());
-            }
+            // 呼び名は自動生成しない。デフォルトは「たより」のままにしておき、会話の中で本人から
+            // 「〇〇って呼びたい」等の希望があった場合だけConversationHandlerがcompanion_nameを更新する
 
-            $trialEndsAt = (new DateTime('now', new DateTimeZone('Asia/Tokyo')))->modify('+' . TRIAL_DAYS . ' days');
-
+            // 表示に必要な情報(プラン名・トライアル終了日等)はrenderDone側で毎回DBから取得するので、
+            // ここでは「このブラウザがどの申込みを行ったか」を示すIDだけを持たせる
             $_SESSION['apply_result'] = [
-                'user_display_name' => $formValues['user_display_name'],
-                'companion_name' => $companionName,
-                'user_invite_code' => $user['invite_code'],
-                'family_invite_code' => $family['invite_code'],
-                'plan_name' => $selectedPlan['name'],
-                'plan_price_yen' => $selectedPlan['price_yen'],
-                'trial_ends_at' => $trialEndsAt->format('Y年n月j日'),
+                'user_id' => (int) $user['id'],
+                'family_id' => (int) $family['id'],
             ];
             unset($_SESSION['apply_csrf_token']);
 
@@ -187,47 +192,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-renderForm($planRepo->getActivePlans(), $errors, $formValues, $_SESSION['apply_csrf_token']);
+renderForm($planRepo->getActivePlans(), $errors, $formValues, $_SESSION['apply_csrf_token'], $duplicateFamily ?? null);
 
-function h(string $value): string
+function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?array $duplicateFamily = null): void
 {
-    return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-}
-
-function renderForm(array $plans, array $errors, array $v, string $csrfToken): void
-{
+    Layout::renderHeader('apply', 'ご利用申込');
     ?>
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ご利用申込 | Raise Me Up</title>
 <style>
-  body { font-family: -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif; background:#f7f6f3; color:#333; margin:0; padding:24px 16px 60px; }
   .card { max-width: 560px; margin: 0 auto; background:#fff; border-radius:12px; padding:28px 24px; box-shadow:0 2px 8px rgba(0,0,0,0.06); }
-  h1 { font-size:1.4rem; margin-top:0; }
-  h2 { font-size:1.05rem; margin:28px 0 12px; border-left:4px solid #d98a3d; padding-left:8px; }
-  label { display:block; font-weight:bold; margin:14px 0 4px; font-size:0.95rem; }
-  input[type=text], input[type=email], input[type=tel], input[type=date] {
+  .card h1 { font-size:1.4rem; margin-top:0; }
+  .card h2 { font-size:1.05rem; margin:28px 0 12px; border-left:4px solid #4B8B5A; padding-left:8px; }
+  .card label { display:block; font-weight:bold; margin:14px 0 4px; font-size:0.95rem; }
+  .card input[type=text], .card input[type=email], .card input[type=tel], .card input[type=date] {
     width:100%; box-sizing:border-box; padding:10px; font-size:1rem; border:1px solid #ccc; border-radius:6px;
   }
   .plan { border:1px solid #ddd; border-radius:8px; padding:12px; margin-bottom:8px; }
   .plan label { display:flex; align-items:baseline; gap:8px; font-weight:normal; margin:0; }
-  .plan .price { color:#b05a1e; font-weight:bold; }
+  .plan .price { color:#4B8B5A; font-weight:bold; }
+  .plan-soon { border:1px dashed #cfc9bd; background:#faf9f6; color:#888; }
+  .plan-soon .name-row { display:flex; align-items:baseline; gap:8px; }
+  .plan-soon .badge-soon { display:inline-block; font-size:0.75rem; font-weight:bold; color:#fff; background:#a9915a; border-radius:10px; padding:2px 8px; }
   .hint { font-size:0.85rem; color:#777; margin-top:2px; }
   .errors { background:#fdecea; border:1px solid #f5b0a8; color:#a12a1f; padding:12px 16px; border-radius:8px; margin-bottom:16px; }
-  button { margin-top:24px; width:100%; padding:14px; font-size:1.05rem; background:#d98a3d; color:#fff; border:none; border-radius:8px; cursor:pointer; }
-  button:hover { background:#c07a30; }
+  .notice { background:#eef2ea; border:1px solid #cfdbc4; color:#333; padding:12px 16px; border-radius:8px; margin-bottom:16px; line-height:1.6; }
+  .notice a { color:#4B8B5A; font-weight:bold; }
+  .card button { display:inline-flex; align-items:center; justify-content:center; gap:10px; margin-top:24px; width:100%; padding:14px; font-size:1.05rem; background:#4B8B5A; color:#fff; border:none; border-radius:8px; cursor:pointer; }
+  .card button .icon { width:1.35em; height:1.35em; }
+  .card button:hover { background:#1E4729; }
   .honeypot { position:absolute; left:-9999px; }
 </style>
-</head>
-<body>
 <div class="card">
-  <h1>Raise Me Up ご利用申込</h1>
+  <h1>TAYORI ご利用申込</h1>
   <p>ご家族が代わってお申込みください。お申込み後、<?= TRIAL_DAYS ?>日間無料でお試しいただけます。</p>
 
-  <?php if (!empty($errors)): ?>
+  <?php if ($duplicateFamily !== null): ?>
+    <?php $resumable = (int) ($_SESSION['apply_result']['family_id'] ?? 0) === (int) $duplicateFamily['id']; ?>
+    <div class="notice">
+      <?php if ($resumable): ?>
+        このメールアドレスでは、完了していないお申込みがあります。<a href="/apply/?done=1">続きはこちらから</a>お進みください。
+      <?php else: ?>
+        このメールアドレスでは既にお申込みをいただいています。心当たりがない場合や、続きのお手続きについては<a href="mailto:support@tayori-net.jp">support@tayori-net.jp</a>までご連絡ください。
+      <?php endif; ?>
+    </div>
+  <?php elseif (!empty($errors)): ?>
     <div class="errors">
       <?php foreach ($errors as $e): ?><div><?= h($e) ?></div><?php endforeach; ?>
     </div>
@@ -258,14 +265,30 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken): v
     <label for="user_phone">電話番号</label>
     <input type="tel" id="user_phone" name="user_phone" value="<?= h($v['user_phone']) ?>">
 
+    <label for="user_zip">郵便番号</label>
+    <input type="text" id="user_zip" name="user_zip" value="<?= h($v['user_zip']) ?>" inputmode="numeric" placeholder="1234567" maxlength="8">
+    <div class="hint">ハイフンなしで入力すると、住所が自動で入力されます</div>
+
     <label for="user_address">ご住所</label>
     <input type="text" id="user_address" name="user_address" value="<?= h($v['user_address']) ?>">
 
     <label for="user_birthdate">生年月日</label>
     <input type="date" id="user_birthdate" name="user_birthdate" value="<?= h($v['user_birthdate']) ?>">
 
+    <label>ご本人の性別</label>
+    <div class="hint">任意です。会話の話し方・言葉選びを合わせる参考にします</div>
+    <div class="plan">
+      <label><input type="radio" name="user_gender" value="male" <?= $v['user_gender'] === 'male' ? 'checked' : '' ?>> 男性</label>
+    </div>
+    <div class="plan">
+      <label><input type="radio" name="user_gender" value="female" <?= $v['user_gender'] === 'female' ? 'checked' : '' ?>> 女性</label>
+    </div>
+    <div class="plan">
+      <label><input type="radio" name="user_gender" value="" <?= $v['user_gender'] === '' ? 'checked' : '' ?>> 回答しない</label>
+    </div>
+
     <label>話し相手の性別</label>
-    <div class="hint">AIの話し相手の名前を決める際に使用します</div>
+    <div class="hint">TAYORIの名前を決める際に使用します</div>
     <div class="plan">
       <label><input type="radio" name="companion_gender" value="male" <?= $v['companion_gender'] === 'male' ? 'checked' : '' ?>> 男性</label>
     </div>
@@ -278,88 +301,46 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken): v
 
     <h2>プランを選択</h2>
     <?php foreach ($plans as $plan): ?>
-      <div class="plan">
-        <label>
-          <input type="radio" name="plan_id" value="<?= (int) $plan['id'] ?>" <?= $v['plan_id'] === (string) $plan['id'] ? 'checked' : '' ?> required>
-          <span><?= h($plan['name']) ?> <span class="price">月額<?= number_format((int) $plan['price_yen']) ?>円</span><?php if (!empty($plan['description'])): ?><br><span class="hint"><?= h($plan['description']) ?></span><?php endif; ?></span>
-        </label>
-      </div>
+      <?php if (!empty($plan['coming_soon'])): ?>
+        <div class="plan plan-soon">
+          <div class="name-row"><span><?= h($plan['name']) ?></span><span class="badge-soon">近日公開</span></div>
+          <?php if (!empty($plan['description'])): ?><div class="hint"><?= h($plan['description']) ?></div><?php endif; ?>
+        </div>
+      <?php else: ?>
+        <div class="plan">
+          <label>
+            <input type="radio" name="plan_id" value="<?= (int) $plan['id'] ?>" <?= $v['plan_id'] === (string) $plan['id'] ? 'checked' : '' ?> required>
+            <span><?= h($plan['name']) ?> <span class="price">月額<?= number_format((int) $plan['price_yen']) ?>円</span><?php if (!empty($plan['description'])): ?><br><span class="hint"><?= h($plan['description']) ?></span><?php endif; ?></span>
+          </label>
+        </div>
+      <?php endif; ?>
     <?php endforeach; ?>
 
-    <button type="submit">この内容で申し込む</button>
+    <button type="submit">この内容で申し込む<?= Layout::icon('play') ?></button>
   </form>
 </div>
-</body>
-</html>
+<script>
+(function () {
+  var zipInput = document.getElementById('user_zip');
+  var addressInput = document.getElementById('user_address');
+  zipInput.addEventListener('input', function () {
+    var digits = zipInput.value.replace(/[^0-9]/g, '');
+    if (digits.length !== 7) {
+      return;
+    }
+    fetch('https://zipcloud.ibsnet.co.jp/api/search?zipcode=' + digits)
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data.status !== 200 || !data.results || !data.results.length) {
+          return;
+        }
+        var r = data.results[0];
+        addressInput.value = r.address1 + r.address2 + r.address3;
+      })
+      .catch(function () {});
+  });
+})();
+</script>
     <?php
-}
-
-function renderDone(array $r, bool $paymentPending): void
-{
-    $addFriendUrl = Config::get('LINE_ADD_FRIEND_URL', '');
-    $familyAddFriendUrl = Config::get('LINE_FAMILY_ADD_FRIEND_URL', '');
-    ?>
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>お申込みありがとうございます | Raise Me Up</title>
-<style>
-  body { font-family: -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif; background:#f7f6f3; color:#333; margin:0; padding:24px 16px 60px; }
-  .card { max-width: 560px; margin: 0 auto; background:#fff; border-radius:12px; padding:28px 24px; box-shadow:0 2px 8px rgba(0,0,0,0.06); }
-  h1 { font-size:1.3rem; }
-  .code-box { background:#fff8ef; border:1px solid #eecb98; border-radius:8px; padding:16px; margin:16px 0; text-align:center; }
-  .code { font-size:1.8rem; font-weight:bold; letter-spacing:0.15em; color:#b05a1e; }
-  .steps { padding-left:1.2em; }
-  .steps li { margin-bottom:10px; }
-  a.button { display:block; text-align:center; margin-top:12px; padding:12px; background:#06c755; color:#fff; text-decoration:none; border-radius:8px; font-weight:bold; }
-  .qr-box { text-align:center; margin-top:12px; }
-  .qr-box img { width:160px; height:160px; border:1px solid #eee; border-radius:8px; padding:8px; background:#fff; }
-  .optional { margin-top:32px; padding-top:16px; border-top:1px solid #eee; }
-</style>
-</head>
-<body>
-<div class="card">
-  <h1>お申込みありがとうございます</h1>
-  <p><?= h($r['plan_name']) ?>(月額<?= number_format((int) $r['plan_price_yen']) ?>円)を<?= TRIAL_DAYS ?>日間無料でお試しいただけます(<?= h($r['trial_ends_at']) ?>まで)。</p>
-  <?php if ($paymentPending): ?>
-    <p style="color:#a12a1f;">お支払い情報の登録が完了していません。無料期間中はそのままご利用いただけますが、期間終了までにお支払い情報のご登録が必要です。折り返しご案内いたします。</p>
-  <?php endif; ?>
-
-  <p>話し相手の名前は<strong><?= h($r['companion_name']) ?></strong>に決まりました。</p>
-
-  <p><strong><?= h($r['user_display_name']) ?></strong>様ご本人のスマートフォンで、以下の手順をお願いします。</p>
-  <ol class="steps">
-    <li>LINEで「Raise Me Up」公式アカウントを友だち追加する</li>
-    <?php if ($addFriendUrl !== ''): ?>
-      <li><a class="button" href="<?= h($addFriendUrl) ?>">友だち追加はこちら</a></li>
-      <li>
-        <div class="qr-box">
-          <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=<?= urlencode($addFriendUrl) ?>" alt="友だち追加QRコード" width="160" height="160">
-        </div>
-      </li>
-    <?php endif; ?>
-    <li>最初のメッセージとして、下記の連携コードをそのまま送信する</li>
-  </ol>
-  <div class="code-box">
-    <div class="code"><?= h($r['user_invite_code']) ?></div>
-  </div>
-
-  <div class="optional">
-    <p>ご家族様ご自身のLINEでも、無料期間終了のお知らせなどを受け取りたい場合は、ご家族向けの公式アカウント「RaiseMeUpサポート」を友だち追加のうえ、以下のコードを送ってください(任意)。</p>
-    <?php if ($familyAddFriendUrl !== ''): ?>
-      <a class="button" href="<?= h($familyAddFriendUrl) ?>">RaiseMeUpサポートを友だち追加</a>
-      <div class="qr-box">
-        <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=<?= urlencode($familyAddFriendUrl) ?>" alt="RaiseMeUpサポート友だち追加QRコード" width="160" height="160">
-      </div>
-    <?php endif; ?>
-    <div class="code-box">
-      <div class="code"><?= h($r['family_invite_code']) ?></div>
-    </div>
-  </div>
-</div>
-</body>
-</html>
-    <?php
+    Layout::renderFooter();
 }

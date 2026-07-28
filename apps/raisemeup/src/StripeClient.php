@@ -50,6 +50,22 @@ class StripeClient
         return $this->request('POST', '/checkout/sessions', $params + ['mode' => 'subscription']);
     }
 
+    // 即時キャンセル(日割り等は行わない)。放置された未連携契約が意図せず課金される前に止める用途で使う
+    public function cancelSubscription(string $subscriptionId): array
+    {
+        return $this->request('DELETE', '/subscriptions/' . $subscriptionId);
+    }
+
+    // Stripeがホストするお支払い管理画面(カード変更・請求書履歴・解約)のセッションを発行する。
+    // 事前にStripeダッシュボード側で「Customer portal」の設定(何を許可するか)が必要
+    public function createBillingPortalSession(string $customerId, string $returnUrl): array
+    {
+        return $this->request('POST', '/billing_portal/sessions', [
+            'customer' => $customerId,
+            'return_url' => $returnUrl,
+        ]);
+    }
+
     // Stripe-Signatureヘッダを検証し、ペイロードをデコードして返す。検証失敗時は例外を投げる。
     public function constructEvent(string $payload, string $sigHeader): array
     {

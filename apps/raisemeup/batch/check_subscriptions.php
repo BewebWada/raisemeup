@@ -8,15 +8,35 @@
 // 方針により、利用者本人(users.status)には一切触れない(支払い未設定でもBot応答は止めない)。
 require_once __DIR__ . '/../src/Config.php';
 require_once __DIR__ . '/../src/LineClient.php';
+require_once __DIR__ . '/../src/MailClient.php';
+require_once __DIR__ . '/../src/StripeClient.php';
+require_once __DIR__ . '/../src/SubscriptionRepository.php';
+require_once __DIR__ . '/../src/FamilyAccountRepository.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Database.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
+
+// LINE未連携(users.status='pending')のまま何日で「放置」扱いにするか。後で調整しやすいよう定数化しておく
+const ABANDON_TIMEOUT_DAYS = 3;
 
 Env::load(__DIR__ . '/../../../.env');
 
 $dbConfig = require __DIR__ . '/../db/config.php';
 $pdo = Database::connect($dbConfig);
-// 家族への通知は「RaiseMeUpサポート」チャネル(利用者本人の会話用アカウントとは別)から送る
+// 家族への通知は「TAYORIサポート」チャネル(利用者本人の会話用アカウントとは別)から送る
 $lineClient = new LineClient(Config::get('LINE_FAMILY_CHANNEL_SECRET'), Config::get('LINE_FAMILY_CHANNEL_ACCESS_TOKEN'));
+
+// SMTP未設定の間はメール送信自体をスキップする(LINE通知チャネルと同様、無ければ何もしないだけ)
+$mailClient = null;
+if (Config::get('SMTP_HOST', '') !== '') {
+    $mailClient = new MailClient(
+        Config::get('SMTP_HOST', ''),
+        (int) Config::get('SMTP_PORT', '587'),
+        Config::get('SMTP_USERNAME', ''),
+        Config::get('SMTP_PASSWORD', ''),
+        Config::get('SMTP_USERNAME', ''),
+        Config::get('SMTP_FROM_NAME', 'TAYORI')
+    );
+}
 
 // 家族のline_user_idが設定されていれば送信し、無ければ何もしない(通知チャネルが無いだけで、契約状態には影響しない)
 function notifyFamily(LineClient $lineClient, ?string $familyLineUserId, string $text): void
@@ -25,6 +45,19 @@ function notifyFamily(LineClient $lineClient, ?string $familyLineUserId, string 
         return;
     }
     $lineClient->push($familyLineUserId, $text);
+}
+
+// familyのemailが設定されていれば送信し、無ければ何もしない。送信失敗はログに残すのみで処理は止めない
+function notifyFamilyEmail(?MailClient $mailClient, ?string $email, string $subject, string $body): void
+{
+    if ($mailClient === null || empty($email)) {
+        return;
+    }
+    try {
+        $mailClient->send($email, $subject, $body);
+    } catch (Throwable $e) {
+        error_log('Reminder email send failed: ' . $e->getMessage());
+    }
 }
 
 // --- 1. トライアル終了3日前のリマインド ---
@@ -45,10 +78,10 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
     $priceText = "{$row['plan_name']}(月額" . number_format((int) $row['price_yen']) . "円)";
     if (!empty($row['payment_customer_ref'])) {
         // Stripeでカード登録済み: 何もしなくても自動課金される旨の案内のみ
-        $text = "【Raise Me Up】{$displayName}様の無料期間は、あと3日で終了します(" . substr($row['trial_ends_at'], 0, 10) . "まで)。"
+        $text = "【TAYORI】{$displayName}様の無料期間は、あと3日で終了します(" . substr($row['trial_ends_at'], 0, 10) . "まで)。"
             . "登録済みのお支払い方法で、自動的に{$priceText}のお支払いに移行します。特にお手続きは不要です。";
     } else {
-        $text = "【Raise Me Up】{$displayName}様の無料期間は、あと3日で終了します(" . substr($row['trial_ends_at'], 0, 10) . "まで)。"
+        $text = "【TAYORI】{$displayName}様の無料期間は、あと3日で終了します(" . substr($row['trial_ends_at'], 0, 10) . "まで)。"
             . "引き続きご利用いただくには、{$priceText}へのお支払い情報のご登録をお願いいたします。";
     }
     notifyFamily($lineClient, $row['family_line_user_id'], $text);
@@ -75,8 +108,84 @@ $pdo->exec(
 
 foreach ($expired as $row) {
     $displayName = $row['user_display_name'] ?: 'ご利用者様';
-    $text = "【Raise Me Up】{$displayName}様の無料期間が終了しました。引き続きご利用いただくには、お支払い情報のご登録をお願いいたします。"
+    $text = "【TAYORI】{$displayName}様の無料期間が終了しました。引き続きご利用いただくには、お支払い情報のご登録をお願いいたします。"
         . "なお、ご登録が完了するまでの間もサービスは通常通りご利用いただけます。";
     notifyFamily($lineClient, $row['family_line_user_id'], $text);
 }
 echo "[OK] subscriptions marked trial_expired: " . count($expired) . "\n";
+
+// --- 3. LINE未連携のまま放置された申込みの検知 ---
+// 本人(users)が一度もLINE連携しないまま(status='pending')ABANDON_TIMEOUT_DAYS日を超えた契約は、
+// 一度も使われていないサービスへの課金を防ぐためStripe契約をキャンセルし、再申込みができるよう
+// family_accounts.emailを解放する(UNIQUE制約が永久に再申込みを妨げないように)。
+$stripeClient = new StripeClient(Config::get('STRIPE_SECRET_KEY', ''));
+$subscriptionRepo = new SubscriptionRepository($pdo);
+$familyRepo = new FamilyAccountRepository($pdo);
+$resumeBaseUrl = rtrim(Config::get('APP_BASE_URL', ''), '/') . '/apply/resume.php?u=';
+
+// 3a. 期限の1日前のリマインド(LINE連携ページへの再開リンクを送る)
+$stmt = $pdo->query(
+    "SELECT u.invite_code AS user_invite_code, u.display_name AS user_display_name,
+            fa.email AS family_email, fa.name AS family_name
+     FROM subscriptions s
+     JOIN users u ON u.id = s.user_id
+     JOIN family_accounts fa ON fa.id = s.family_account_id
+     WHERE s.status = 'trial' AND u.status = 'pending'
+       AND DATE(s.created_at) = DATE_SUB(CURDATE(), INTERVAL " . (ABANDON_TIMEOUT_DAYS - 1) . " DAY)"
+);
+$abandonReminderCount = 0;
+foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+    if (empty($row['family_email']) || empty($row['user_invite_code'])) {
+        continue;
+    }
+    $displayName = $row['user_display_name'] ?: 'ご利用者様';
+    $subject = '【TAYORI】LINE連携がまだ完了していません';
+    $body = "{$row['family_name']}様\n\n"
+        . "TAYORIへのお申込みありがとうございます。{$displayName}様のLINE連携がまだ完了していないようです。\n"
+        . "このまま連携が完了しない場合、明日にはお申込みを一旦キャンセルさせていただきます。\n\n"
+        . "以下のリンクから、LINE連携の手続きを再開できます。\n" . $resumeBaseUrl . urlencode($row['user_invite_code']) . "\n\n"
+        . "ご不明な点はsupport@tayori-net.jpまでご連絡ください。";
+    notifyFamilyEmail($mailClient, $row['family_email'], $subject, $body);
+    $abandonReminderCount++;
+}
+echo "[OK] abandonment reminder sent: {$abandonReminderCount}\n";
+
+// 3b. 期限超過分の自動キャンセル。Stripeの解約に失敗した場合はabandoned化せず翌日に再試行する
+// (課金停止を確認できていないのにemailを解放してしまうと、二重にサービスを使われる余地が生まれるため)
+$stmt = $pdo->query(
+    "SELECT s.id, s.payment_customer_ref, u.display_name AS user_display_name,
+            fa.id AS family_id, fa.email AS family_email, fa.name AS family_name
+     FROM subscriptions s
+     JOIN users u ON u.id = s.user_id
+     JOIN family_accounts fa ON fa.id = s.family_account_id
+     WHERE s.status = 'trial' AND u.status = 'pending'
+       AND s.created_at < DATE_SUB(NOW(), INTERVAL " . ABANDON_TIMEOUT_DAYS . " DAY)"
+);
+$abandonedCount = 0;
+foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+    if (!empty($row['payment_customer_ref'])) {
+        try {
+            $stripeClient->cancelSubscription($row['payment_customer_ref']);
+        } catch (Throwable $e) {
+            error_log("Stripe subscription cancel failed for subscription {$row['id']}: " . $e->getMessage());
+            continue;
+        }
+    }
+
+    $subscriptionRepo->markAbandoned((int) $row['id']);
+    $familyRepo->clearEmail((int) $row['family_id']);
+
+    if (!empty($row['family_email'])) {
+        $displayName = $row['user_display_name'] ?: 'ご利用者様';
+        $subject = '【TAYORI】お申込みを一旦キャンセルしました';
+        $body = "{$row['family_name']}様\n\n"
+            . "{$displayName}様のLINE連携が完了しないまま" . ABANDON_TIMEOUT_DAYS . "日が経過したため、"
+            . "お申込みを一旦キャンセルいたしました。料金は発生しておりません。\n\n"
+            . "改めてご利用になりたい場合は、お手数ですが再度お申込みください。\n"
+            . rtrim(Config::get('APP_BASE_URL', ''), '/') . "/apply/\n\n"
+            . "ご不明な点はsupport@tayori-net.jpまでご連絡ください。";
+        notifyFamilyEmail($mailClient, $row['family_email'], $subject, $body);
+    }
+    $abandonedCount++;
+}
+echo "[OK] abandoned subscriptions cancelled: {$abandonedCount}\n";

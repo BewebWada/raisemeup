@@ -27,7 +27,7 @@ try {
 $dbConfig = require __DIR__ . '/../db/config.php';
 $pdo = Database::connect($dbConfig);
 $subscriptionRepo = new SubscriptionRepository($pdo);
-// 決済失敗の通知は「RaiseMeUpサポート」チャネル(利用者本人の会話用アカウントとは別)から送る
+// 決済失敗の通知は「TAYORIサポート」チャネル(利用者本人の会話用アカウントとは別)から送る
 $lineClient = new LineClient(Config::get('LINE_FAMILY_CHANNEL_SECRET'), Config::get('LINE_FAMILY_CHANNEL_ACCESS_TOKEN'));
 
 $type = $event['type'] ?? '';
@@ -125,7 +125,7 @@ function handleInvoicePaymentFailed(PDO $pdo, SubscriptionRepository $subscripti
         return;
     }
     $displayName = $row['user_display_name'] ?: 'ご利用者様';
-    $text = "【Raise Me Up】{$displayName}様の{$row['plan_name']}のお支払いに失敗しました。"
+    $text = "【TAYORI】{$displayName}様の{$row['plan_name']}のお支払いに失敗しました。"
         . "登録されているカード情報をご確認のうえ、Stripeからの請求メールに記載のリンクよりお支払い情報の更新をお願いいたします。"
         . "なお、更新が完了するまでの間もサービスは通常通りご利用いただけます。";
     $lineClient->push($row['family_line_user_id'], $text);
