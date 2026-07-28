@@ -37,4 +37,81 @@ return [
         COMMENT '申込時にご家族が選択するAIの性別。会話相手の名前決定に使用' AFTER birthdate,
         ADD COLUMN IF NOT EXISTS companion_name VARCHAR(50) DEFAULT NULL
         COMMENT 'AIが自己紹介する名前(companion_genderをもとに申込時に自動生成)' AFTER companion_gender;",
+
+    // 'abandoned'を追加(LINE未連携のまま一定期間放置され、自動キャンセルされた契約)
+    'subscriptions.status_abandoned' => "ALTER TABLE subscriptions
+        MODIFY COLUMN status ENUM('trial', 'active', 'trial_expired', 'past_due', 'cancelled', 'abandoned') NOT NULL DEFAULT 'trial';",
+
+    'plans.coming_soon' => "ALTER TABLE plans
+        ADD COLUMN IF NOT EXISTS coming_soon BOOLEAN NOT NULL DEFAULT FALSE
+        COMMENT 'サービス開始前の予告表示のみ。申込みでは選択不可にする' AFTER is_active;",
+
+    'users.postal_code' => "ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS postal_code VARCHAR(8) DEFAULT NULL AFTER phone;",
+
+    'users.quiet_hours' => "ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS quiet_hours_start TIME DEFAULT NULL
+        COMMENT '会話の中でAIに伝えた、システム側から話しかけないでほしい時間帯の開始(例:22:00)' AFTER companion_name,
+        ADD COLUMN IF NOT EXISTS quiet_hours_end TIME DEFAULT NULL
+        COMMENT '同・終了時刻(開始>終了なら日をまたぐ範囲として扱う。例:22:00〜07:00)' AFTER quiet_hours_start;",
+
+    'users.gender' => "ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS gender ENUM('male', 'female') DEFAULT NULL
+        COMMENT 'ご本人の性別(任意)。会話の話し方・言葉選びを合わせる用途' AFTER birthdate;",
+
+    // 詐欺以外に、利用者本人の安全・健康に関わる気になる発言も検知対象に加えるためのカテゴリ追加
+    'risk_patterns.category_health_safety' => "ALTER TABLE risk_patterns
+        MODIFY COLUMN category ENUM(
+            'money_request',
+            'personal_info_request',
+            'urgency_pressure',
+            'isolation_attempt',
+            'unfamiliar_contact',
+            'health_concern',
+            'safety_concern',
+            'other'
+        ) NOT NULL;",
+
+    'urgent_silence_alerts.resolved_at' => "ALTER TABLE urgent_silence_alerts
+        ADD COLUMN IF NOT EXISTS resolved_at DATETIME DEFAULT NULL
+        COMMENT '通知後に利用者からのinboundが確認でき、家族へ解除連絡を送った時刻(未解除ならNULL)' AFTER notified_at;",
+
+    // urgent通知時にTAYORIから本人へ位置情報を尋ねられるようにするための拡張
+    'conversations.location' => "ALTER TABLE conversations
+        MODIFY COLUMN message_type ENUM('text', 'sticker', 'image', 'audio', 'location', 'other') NOT NULL DEFAULT 'text',
+        ADD COLUMN IF NOT EXISTS latitude DECIMAL(10,7) DEFAULT NULL
+        COMMENT '位置情報メッセージの緯度(message_type=locationのみ)' AFTER content,
+        ADD COLUMN IF NOT EXISTS longitude DECIMAL(10,7) DEFAULT NULL
+        COMMENT '位置情報メッセージの経度(message_type=locationのみ)' AFTER latitude,
+        ADD COLUMN IF NOT EXISTS location_address VARCHAR(255) DEFAULT NULL
+        COMMENT 'LINE側で付与された住所文字列(message_type=locationのみ)' AFTER longitude;",
+
+    'wellness_check_alerts.resolved_at' => "ALTER TABLE wellness_check_alerts
+        ADD COLUMN IF NOT EXISTS resolved_at DATETIME DEFAULT NULL
+        COMMENT '通知後に利用者からのinboundが確認でき、家族へ解除連絡を送った時刻(未解除ならNULL)' AFTER notified_at;",
+
+    // 「毎週土曜日」「毎月10日」のような繰り返し予定に対応するための拡張
+    'schedules.recurrence' => "ALTER TABLE schedules
+        ADD COLUMN IF NOT EXISTS recurrence_type ENUM('none', 'weekly', 'monthly') NOT NULL DEFAULT 'none'
+        COMMENT '「毎週」「毎月」のような繰り返し予定かどうか' AFTER status,
+        ADD COLUMN IF NOT EXISTS recurrence_weekday TINYINT UNSIGNED DEFAULT NULL
+        COMMENT '0(日)〜6(土)。recurrence_type=weeklyのみ使用' AFTER recurrence_type,
+        ADD COLUMN IF NOT EXISTS recurrence_day_of_month TINYINT UNSIGNED DEFAULT NULL
+        COMMENT '1〜31。recurrence_type=monthlyのみ使用' AFTER recurrence_weekday;",
+
+    // 服薬など「毎日」の繰り返し予定にも対応するため、'daily'を追加
+    'schedules.recurrence_daily' => "ALTER TABLE schedules
+        MODIFY COLUMN recurrence_type ENUM('none', 'daily', 'weekly', 'monthly') NOT NULL DEFAULT 'none'
+        COMMENT '「毎日」「毎週」「毎月」のような繰り返し予定かどうか';",
+
+    // 前日リマインドとは別に、当日朝のリマインドにも対応するための拡張
+    'schedules.same_day_reminder' => "ALTER TABLE schedules
+        ADD COLUMN IF NOT EXISTS same_day_reminder_sent BOOLEAN NOT NULL DEFAULT FALSE
+        COMMENT '当日朝リマインドの送信済みフラグ' AFTER reminder_sent;",
+
+    // 服薬管理(決まった時刻のリマインド+飲んだかどうかの確認)対象かどうかのフラグ。
+    // trueの対象はsend_proactive_messages.phpのsendMedicationRemindersが時刻到来を検知してリマインドする
+    'schedules.is_medication' => "ALTER TABLE schedules
+        ADD COLUMN IF NOT EXISTS is_medication BOOLEAN NOT NULL DEFAULT FALSE
+        COMMENT '決まった時刻の服薬リマインド+確認の対象かどうか' AFTER recurrence_day_of_month;",
 ];

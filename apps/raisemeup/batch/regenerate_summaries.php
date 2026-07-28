@@ -6,6 +6,7 @@ require_once __DIR__ . '/../src/Config.php';
 require_once __DIR__ . '/../src/ClaudeClient.php';
 require_once __DIR__ . '/../src/SummaryRepository.php';
 require_once __DIR__ . '/../src/ScheduleRepository.php';
+require_once __DIR__ . '/../src/MedicationLogRepository.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Database.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
 
@@ -15,6 +16,7 @@ $dbConfig = require __DIR__ . '/../db/config.php';
 $pdo = Database::connect($dbConfig);
 $claude = new ClaudeClient(Config::get('ANTHROPIC_API_KEY'), Config::get('CLAUDE_MODEL'));
 $summaryRepo = new SummaryRepository($pdo);
+$medicationLogRepo = new MedicationLogRepository($pdo);
 
 // --- 0a. 過去の予定をcompletedにする(期間の場合は終了日、単発なら開始日を基準に、今日より前なら完了扱い) ---
 $completedCount = $pdo->exec(
@@ -34,6 +36,10 @@ $staleCount = $pdo->exec(
        AND created_at < DATE_SUB(CURDATE(), INTERVAL 90 DAY)"
 );
 echo "[OK] schedules with no date, marked cancelled after 90 days: {$staleCount}\n";
+
+// --- 0c. リマインド送信済みだが確認が取れないまま日をまたいだ服薬記録を「見送り」として確定する ---
+$missedMedicationCount = $medicationLogRepo->markStalePendingAsMissed();
+echo "[OK] medication logs marked missed: {$missedMedicationCount}\n";
 
 function regenerateScheduleSummary(PDO $pdo, ClaudeClient $claude, SummaryRepository $summaryRepo, int $userId): void
 {

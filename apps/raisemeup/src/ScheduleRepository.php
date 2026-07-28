@@ -16,7 +16,12 @@ class ScheduleRepository
      */
     public function getUpcomingDetailsByUserId(int $userId, ?int $limit = null): array
     {
-        $sql = "SELECT title, scheduled_at, scheduled_end_at, scheduled_date_text, location
+        // 繰り返し予定は、読み出しのたびに「過去になっていれば次回occurrenceへ繰り上げる」ことで
+        // 常に新鮮な状態を保つ(バッチのリマインド判定もこの繰り上げに依存している)
+        $this->advanceRecurringSchedules($userId);
+
+        $sql = "SELECT title, scheduled_at, scheduled_end_at, scheduled_date_text, location,
+                       recurrence_type, recurrence_weekday, recurrence_day_of_month
                 FROM schedules WHERE user_id = ? AND status = 'upcoming'
                 ORDER BY scheduled_at IS NULL, scheduled_at ASC";
         $params = [$userId];
@@ -36,13 +41,36 @@ class ScheduleRepository
     // 1件の予定を "・タイトル / 日付 / 場所" のような1行のテキストに整形する(要約生成・プロンプト注入の両方で使う共通フォーマット)
     public static function formatScheduleLine(array $row): string
     {
-        // scheduled_at(システム側で確定計算した絶対日付)を必ず優先する。scheduled_date_text(「明日」等、
-        // 会話に出た生の言い回し)は、日付が解決できなかった場合(「そのうち」等)のフォールバックにのみ使う。
-        // 生の言い回しを優先すると、要約(バッチで生成され長時間使い回される)に「明日」のような相対表現が
-        // そのまま残ってしまい、後日読むと不正確になる。
-        $dateLabel = !empty($row['scheduled_at'])
-            ? self::formatDateLabel($row['scheduled_at'])
-            : ($row['scheduled_date_text'] ?: '日付未定');
+        $weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+        $recurrenceType = $row['recurrence_type'] ?? 'none';
+
+        if ($recurrenceType === 'daily') {
+            // 「毎日」は日付そのものに意味が無いので、時刻の言及があればそれだけ添える(例:「毎日 20:00」)
+            $dateLabel = '毎日';
+            if (!empty($row['scheduled_at']) && substr($row['scheduled_at'], 11, 8) !== '00:00:00') {
+                $dateLabel .= ' ' . substr($row['scheduled_at'], 11, 5);
+            }
+        } elseif ($recurrenceType === 'weekly' && isset($row['recurrence_weekday']) && $row['recurrence_weekday'] !== null) {
+            // 繰り返し予定は「毎週〇曜日」を主表記にし、次回の具体日付を補足として添える
+            // (scheduled_atは繰り上げ処理により常に次回occurrenceを指すので、そのまま使える)
+            $dateLabel = '毎週' . $weekdays[(int) $row['recurrence_weekday']] . '曜日';
+            if (!empty($row['scheduled_at'])) {
+                $dateLabel .= '(次回:' . self::formatDateLabel($row['scheduled_at']) . ')';
+            }
+        } elseif ($recurrenceType === 'monthly' && isset($row['recurrence_day_of_month']) && $row['recurrence_day_of_month'] !== null) {
+            $dateLabel = '毎月' . $row['recurrence_day_of_month'] . '日';
+            if (!empty($row['scheduled_at'])) {
+                $dateLabel .= '(次回:' . self::formatDateLabel($row['scheduled_at']) . ')';
+            }
+        } else {
+            // scheduled_at(システム側で確定計算した絶対日付)を必ず優先する。scheduled_date_text(「明日」等、
+            // 会話に出た生の言い回し)は、日付が解決できなかった場合(「そのうち」等)のフォールバックにのみ使う。
+            // 生の言い回しを優先すると、要約(バッチで生成され長時間使い回される)に「明日」のような相対表現が
+            // そのまま残ってしまい、後日読むと不正確になる。
+            $dateLabel = !empty($row['scheduled_at'])
+                ? self::formatDateLabel($row['scheduled_at'])
+                : ($row['scheduled_date_text'] ?: '日付未定');
+        }
         if (!empty($row['scheduled_end_at'])) {
             $dateLabel .= '〜' . self::formatDateLabel($row['scheduled_end_at']);
         }
@@ -95,7 +123,8 @@ class ScheduleRepository
         }
 
         $stmt = $this->pdo->prepare(
-            "SELECT title, scheduled_at, scheduled_end_at, scheduled_date_text, location, status
+            "SELECT title, scheduled_at, scheduled_end_at, scheduled_date_text, location, status,
+                    recurrence_type, recurrence_weekday, recurrence_day_of_month
              FROM schedules
              WHERE user_id = ? AND (" . implode(' OR ', $conditions) . ")
              ORDER BY scheduled_at IS NULL, scheduled_at DESC
@@ -117,7 +146,9 @@ class ScheduleRepository
         }
 
         $stmt = $this->pdo->prepare(
-            "SELECT id, scheduled_at, scheduled_end_at, scheduled_date_text, location FROM schedules
+            "SELECT id, scheduled_at, scheduled_end_at, scheduled_date_text, location,
+                    recurrence_type, recurrence_weekday, recurrence_day_of_month, is_medication
+             FROM schedules
              WHERE user_id = ? AND title = ? AND status = 'upcoming'"
         );
         $stmt->execute([$userId, $title]);
@@ -136,16 +167,33 @@ class ScheduleRepository
         $dateText = $schedule['date_text'] ?? null;
         $location = $schedule['location'] ?? null;
 
+        // 「毎週〇曜日」「毎月〇日」が今回の会話で明言された場合だけ繰り返し設定を更新する。
+        // 明言が無かった回(recurrenceがnone)は、既存の繰り返し設定を勝手に解除しない
+        [$newRecurrenceType, $newRecurrenceWeekday, $newRecurrenceDayOfMonth] = $this->resolveRecurrence($schedule);
+
+        // is_medicationは一度trueになったら、その回にfalseと判定されただけでは解除しない(片方向のマージ)。
+        // 話題がそれた回に誤ってfalse判定されただけで服薬リマインドが消えてしまう事故を避けるため
+        $isMedication = !empty($schedule['is_medication']) || !empty($existing['is_medication'] ?? false);
+
         if ($existing) {
+            $recurrenceType = $newRecurrenceType ?? $existing['recurrence_type'];
+            $recurrenceWeekday = $newRecurrenceType !== null ? $newRecurrenceWeekday : $existing['recurrence_weekday'];
+            $recurrenceDayOfMonth = $newRecurrenceType !== null ? $newRecurrenceDayOfMonth : $existing['recurrence_day_of_month'];
+
             // 今回言及されなかった項目(null)は既存の値を残す(古い情報で上書きしない)
             $this->pdo->prepare(
-                'UPDATE schedules SET scheduled_at = ?, scheduled_end_at = ?, scheduled_date_text = ?, location = ?, source_conversation_id = ?
+                'UPDATE schedules SET scheduled_at = ?, scheduled_end_at = ?, scheduled_date_text = ?, location = ?,
+                    recurrence_type = ?, recurrence_weekday = ?, recurrence_day_of_month = ?, is_medication = ?, source_conversation_id = ?
                  WHERE id = ?'
             )->execute([
                 $scheduledAt ?? $existing['scheduled_at'],
                 $scheduledEndAt ?? $existing['scheduled_end_at'],
                 $dateText ?? $existing['scheduled_date_text'],
                 $location ?? $existing['location'],
+                $recurrenceType,
+                $recurrenceWeekday,
+                $recurrenceDayOfMonth,
+                $isMedication,
                 $conversationId,
                 $existing['id'],
             ]);
@@ -153,9 +201,96 @@ class ScheduleRepository
         }
 
         $this->pdo->prepare(
-            'INSERT INTO schedules (user_id, title, scheduled_at, scheduled_end_at, scheduled_date_text, location, status, source_conversation_id)
-             VALUES (?, ?, ?, ?, ?, ?, "upcoming", ?)'
-        )->execute([$userId, $title, $scheduledAt, $scheduledEndAt, $dateText, $location, $conversationId]);
+            'INSERT INTO schedules (user_id, title, scheduled_at, scheduled_end_at, scheduled_date_text, location,
+                recurrence_type, recurrence_weekday, recurrence_day_of_month, is_medication, status, source_conversation_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "upcoming", ?)'
+        )->execute([
+            $userId, $title, $scheduledAt, $scheduledEndAt, $dateText, $location,
+            $newRecurrenceType ?? 'none', $newRecurrenceWeekday, $newRecurrenceDayOfMonth, $isMedication,
+            $conversationId,
+        ]);
+    }
+
+    /**
+     * Claudeが出した"recurrence"("daily"/"weekly"/"monthly"/"none")とdate_specの曜日・日にちから、
+     * DBに保存する繰り返し設定を組み立てる。曜日・日にちが欠けている等、規則性を特定できない場合はnone扱いにする。
+     * @return array{0: ?string, 1: ?int, 2: ?int} [recurrence_type(未言及ならnull), weekday, day_of_month]
+     */
+    private function resolveRecurrence(array $schedule): array
+    {
+        $recurrence = $schedule['recurrence'] ?? null;
+        $spec = $schedule['date_spec'] ?? [];
+
+        if ($recurrence === 'daily') {
+            return ['daily', null, null]; // 曜日・日にちの指定は不要
+        } elseif ($recurrence === 'weekly') {
+            $weekday = $spec['weekday'] ?? null;
+            if ($weekday !== null && $weekday >= 0 && $weekday <= 6) {
+                return ['weekly', (int) $weekday, null];
+            }
+        } elseif ($recurrence === 'monthly') {
+            $dayOfMonth = $spec['day_of_month'] ?? null;
+            if ($dayOfMonth !== null && $dayOfMonth >= 1 && $dayOfMonth <= 31) {
+                return ['monthly', null, (int) $dayOfMonth];
+            }
+        }
+
+        return [null, null, null];
+    }
+
+    /**
+     * 繰り返し予定(recurrence_type != 'none'。daily/weekly/monthly)のうち、scheduled_atが既に過去日になっている
+     * ものを次回のoccurrenceまで繰り上げる。日付が変わるのでreminder_sent/same_day_reminder_sentもリセットする
+     * (毎回のリマインドが正しく再送されるようにするため)。$userIdを指定すればその利用者だけ、
+     * 省略すれば全利用者分をまとめて処理する(send_proactive_messages.phpからの一括呼び出し用)
+     */
+    public function advanceRecurringSchedules(?int $userId = null): int
+    {
+        $sql = "SELECT id, scheduled_at, recurrence_type, recurrence_weekday, recurrence_day_of_month
+                FROM schedules
+                WHERE status = 'upcoming' AND recurrence_type != 'none'
+                  AND scheduled_at IS NOT NULL AND scheduled_at < CURDATE()";
+        $params = [];
+        if ($userId !== null) {
+            $sql .= ' AND user_id = ?';
+            $params[] = $userId;
+        }
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $todayMidnight = (new DateTime('now', new DateTimeZone('Asia/Tokyo')))->setTime(0, 0, 0);
+        $advancedCount = 0;
+
+        foreach ($rows as $row) {
+            $current = new DateTime($row['scheduled_at'], new DateTimeZone('Asia/Tokyo'));
+            $time = $current->format('H:i:s');
+
+            if ($row['recurrence_type'] === 'daily') {
+                do {
+                    $current->modify('+1 day');
+                } while ($current < $todayMidnight);
+            } elseif ($row['recurrence_type'] === 'weekly') {
+                do {
+                    $current->modify('+7 days');
+                } while ($current < $todayMidnight);
+            } else { // monthly
+                $dayOfMonth = (int) $row['recurrence_day_of_month'];
+                do {
+                    $current->modify('first day of next month');
+                    $daysInMonth = (int) $current->format('t');
+                    // その月に存在しない日(31日等)は月末に丸める(元のrecurrence_day_of_monthは変えない)
+                    $current->setDate((int) $current->format('Y'), (int) $current->format('n'), min($dayOfMonth, $daysInMonth));
+                } while ($current < $todayMidnight);
+            }
+
+            $newScheduledAt = $current->format('Y-m-d') . ' ' . $time;
+            $this->pdo->prepare('UPDATE schedules SET scheduled_at = ?, reminder_sent = 0, same_day_reminder_sent = 0 WHERE id = ?')
+                ->execute([$newScheduledAt, $row['id']]);
+            $advancedCount++;
+        }
+
+        return $advancedCount;
     }
 
     /**
