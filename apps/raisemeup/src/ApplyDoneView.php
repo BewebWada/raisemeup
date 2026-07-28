@@ -144,9 +144,9 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
 
     <?php if ($userLinked): ?>
       <div class="optional">
-        <p>ご家族様ご自身のLINEでも、無料期間終了のお知らせなどを受け取りたい場合は、以下のステップをどうぞ(任意)。</p>
+        <p>続けて、ご家族様ご自身のLINE連携をお願いします(必須)。無料期間終了のお知らせなど大切なご連絡をお送りするため、こちらが完了していないとお申込みが自動的にキャンセルとなりますのでご注意ください。</p>
         <?php renderLineStep(
-          '② ご家族向け通知の連携(任意)',
+          '② ご家族向け通知の連携(必須)',
           'TAYORIサポート',
           $familyLinked,
           $familyLoginUrl,
@@ -156,7 +156,7 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
         ); ?>
       </div>
     <?php else: ?>
-      <p class="hint">①が完了すると、ご家族向けの登録(任意)が表示されます。</p>
+      <p class="hint">①が完了すると、ご家族様ご自身のLINE連携(必須)が表示されます。</p>
     <?php endif; ?>
   <?php endif; ?>
 </div>

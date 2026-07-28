@@ -82,9 +82,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // ここで検知し、DB例外による汎用エラーではなく専用の案内を出す
         $duplicateFamily = (new FamilyAccountRepository($pdo))->findByEmail($formValues['family_email']);
 
-        // LINE未連携(status='pending')かつ支払いも一切発生していない申込みは、実質何も使われていないので
-        // check_subscriptions.phpのABANDON_TIMEOUT_DAYS(3日)を待たず、再申込みの時点で即座に放置扱いにして
-        // emailを解放する。既に支払い情報が紐づいている場合は誤って解約してしまうと危険なので対象外とし、
+        // 本人・ご家族どちらのLINE連携も必須のため、どちらか一方でも未連携かつ支払いも一切発生して
+        // いない申込みは、実質何も使われていないので check_subscriptions.php の ABANDON_TIMEOUT_DAYS
+        // (3日)を待たず、再申込みの時点で即座に放置扱いにしてemailを解放する。既に支払い情報が
+        // 紐づいている場合は誤って解約してしまうと危険なので対象外とし、
         // 「ログイン案内」または「心当たりがなければsupport@へ」の案内に振り分ける
         if ($duplicateFamily !== null) {
             $linkedUserStmt = $pdo->prepare(
@@ -102,7 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $latestSub = $latestSubStmt->fetch(PDO::FETCH_ASSOC);
 
             $isReclaimable = $linkedUser !== false
-                && $linkedUser['status'] === 'pending'
+                && ($linkedUser['status'] === 'pending' || $duplicateFamily['line_user_id'] === null)
                 && (!$latestSub || empty($latestSub['payment_customer_ref']));
 
             if ($isReclaimable) {
