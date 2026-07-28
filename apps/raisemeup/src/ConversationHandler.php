@@ -185,6 +185,13 @@ class ConversationHandler
             $this->userRepo->setCompanionName((int) $user['id'], $requestedName);
         }
 
+        // ⑤.46 利用者本人の呼び名を、申込み時ではなく会話の中で自然に確認して初めて設定する。
+        // 既に呼び名が分かっている場合はClaude側の指示でnullのままになる想定
+        $learnedDisplayName = trim((string) ($result['learned_user_display_name'] ?? ''));
+        if ($learnedDisplayName !== '' && mb_strlen($learnedDisplayName) <= 30) {
+            $this->userRepo->setDisplayName((int) $user['id'], $learnedDisplayName);
+        }
+
         // ⑤.5 要約・正確な一覧だけでは自信を持って答えられないとAIが判断した場合、DBを検索して2ターン目で回答し直す
         $replyText = $result['reply_text'] ?? '';
         $lookup = $result['needs_lookup'] ?? null;

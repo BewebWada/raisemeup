@@ -37,7 +37,7 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
         return;
     }
     $r = [
-        'user_display_name' => $user['display_name'],
+        'user_display_name' => $user['display_name'] ?: 'ご利用者',
         'companion_name' => $user['companion_name'] ?: 'たより',
         'plan_name' => $subscription['plan_name'],
         'plan_price_yen' => $subscription['plan_price_yen'],

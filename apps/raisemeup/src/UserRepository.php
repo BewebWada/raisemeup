@@ -63,6 +63,12 @@ class UserRepository
         $this->pdo->prepare('UPDATE users SET companion_name = ? WHERE id = ?')->execute([$companionName, $id]);
     }
 
+    // 申込み時には呼び名を聞かないため、会話の中で本人から呼び名が分かった際にConversationHandlerが呼ぶ
+    public function setDisplayName(int $id, string $displayName): void
+    {
+        $this->pdo->prepare('UPDATE users SET display_name = ? WHERE id = ?')->execute([$displayName, $id]);
+    }
+
     // マイページからの登録情報編集用
     public function update(int $id, array $data): void
     {

@@ -40,7 +40,7 @@ if (isset($_GET['cancelled']) && !empty($_SESSION['apply_result'])) {
 $errors = [];
 $formValues = [
     'family_name' => '', 'family_email' => '', 'family_phone' => '',
-    'user_display_name' => '', 'user_phone' => '', 'user_zip' => '', 'user_address' => '',
+    'user_phone' => '', 'user_zip' => '', 'user_address' => '',
     'user_birthdate' => '', 'user_gender' => '', 'relation' => '', 'plan_id' => '', 'companion_gender' => 'random',
 ];
 
@@ -81,9 +81,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // ここで検知し、DB例外による汎用エラーではなく専用の案内を出す
         $duplicateFamily = (new FamilyAccountRepository($pdo))->findByEmail($formValues['family_email']);
     }
-    if ($formValues['user_display_name'] === '') {
-        $errors[] = 'ご利用者様(ご本人)のお名前・呼び名を入力してください。';
-    }
     // ハイフンありなし両方許容し、DBには数字7桁のみを保存する
     $formValues['user_zip'] = preg_replace('/[^0-9]/', '', $formValues['user_zip']);
     if ($formValues['user_zip'] !== '' && strlen($formValues['user_zip']) !== 7) {
@@ -121,8 +118,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'phone' => $formValues['family_phone'],
             ]);
 
+            // 呼び名は申込み時には聞かず、TAYORIとの会話の中で自然に確認して
+            // ConversationHandlerが後から設定する(companion_nameと同じ方針)
             $user = $userRepo->createPending([
-                'display_name' => $formValues['user_display_name'],
+                'display_name' => null,
                 'phone' => $formValues['user_phone'],
                 'postal_code' => $formValues['user_zip'],
                 'address' => $formValues['user_address'],
@@ -255,10 +254,6 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
     <input type="tel" id="family_phone" name="family_phone" value="<?= h($v['family_phone']) ?>">
 
     <h2>ご利用者様(ご本人)について</h2>
-    <label for="user_display_name">お名前・呼び名</label>
-    <input type="text" id="user_display_name" name="user_display_name" value="<?= h($v['user_display_name']) ?>" required>
-    <div class="hint">会話の中で「〇〇さん」とお呼びする際に使います</div>
-
     <label for="relation">続柄</label>
     <input type="text" id="relation" name="relation" value="<?= h($v['relation']) ?>" placeholder="例: 息子、娘、ケアマネージャー">
 
@@ -288,7 +283,6 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
     </div>
 
     <label>話し相手の性別</label>
-    <div class="hint">TAYORIの名前を決める際に使用します</div>
     <div class="plan">
       <label><input type="radio" name="companion_gender" value="male" <?= $v['companion_gender'] === 'male' ? 'checked' : '' ?>> 男性</label>
     </div>

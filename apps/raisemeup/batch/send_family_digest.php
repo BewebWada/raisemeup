@@ -68,7 +68,7 @@ foreach ($users as $user) {
         continue;
     }
 
-    $header = "【{$user['companion_name']}より、今週の{$user['display_name']}様の様子です】\n\n";
+    $header = "【{$user['companion_name']}より、今週の" . ($user['display_name'] ?: '利用者') . "様の様子です】\n\n";
     $text = $header . $digest;
 
     $pushedToAny = false;

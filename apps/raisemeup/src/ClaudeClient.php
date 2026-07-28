@@ -132,7 +132,7 @@ PROMPT;
         // 実際に生成できた自然な返信を届けることを優先する)
         if (trim($text) !== '' && strpos($text, '{') === false) {
             error_log("Claude API: JSON形式でない応答をそのまま採用 (attempt {$attempt}): " . substr($text, 0, 300));
-            return ['reply_text' => trim($text), 'persons' => [], 'schedules' => [], 'quiet_hours' => null, 'requested_companion_name' => null, 'family_message_delivered' => false];
+            return ['reply_text' => trim($text), 'persons' => [], 'schedules' => [], 'quiet_hours' => null, 'requested_companion_name' => null, 'learned_user_display_name' => null, 'family_message_delivered' => false];
         }
 
         error_log("Claude API reply JSON parse failed (attempt {$attempt}, stop_reason={$stopReason}): " . substr($text, 0, 1500));
@@ -156,7 +156,7 @@ PROMPT;
 
     private function fallback(): array
     {
-        return ['reply_text' => self::FALLBACK_REPLY, 'persons' => [], 'schedules' => [], 'quiet_hours' => null, 'requested_companion_name' => null, 'family_message_delivered' => false];
+        return ['reply_text' => self::FALLBACK_REPLY, 'persons' => [], 'schedules' => [], 'quiet_hours' => null, 'requested_companion_name' => null, 'learned_user_display_name' => null, 'family_message_delivered' => false];
     }
 
     private const LOOKUP_TYPE_LABELS = [
@@ -1004,6 +1004,12 @@ PROMPT;
                 . '深めていくことを意識してください(1回の返信で聞くのは1つ程度にとどめ、根掘り葉掘りの詰問には'
                 . 'ならないようにすること)。'
             : '';
+        $nameUnknownLine = $userDisplayName === ''
+            ? "\nまだ利用者の呼び名が分かっていません。最初の1〜2往復ほどの自然な会話の中で、"
+                . '「なんてお呼びすればいいですか?」のようにさりげなく尋ね、教えてもらえたら後述の'
+                . 'learned_user_display_nameに入れてください(いきなり最初の一言で聞く必要はなく、'
+                . '簡単な挨拶を交わした後で構いません)。'
+            : '';
 
         $userLabel = $userDisplayName !== '' ? "{$userDisplayName}さん" : '利用者';
         $genderLine = match ($userGender) {
@@ -1079,6 +1085,7 @@ PROMPT;
   ],
   "quiet_hours": null,
   "requested_companion_name": null,
+  "learned_user_display_name": null,
   "needs_lookup": null,
   "destination": null,
   "travel_mode": null,
@@ -1172,6 +1179,14 @@ PROMPT;
 - 単に「名前は?」「何て呼べばいい?」と聞かれただけ(希望の表明ではなく質問)の場合はnullのままにする
   (この場合はreply_textの中で、現在の自分の名前を答えればよい)
 - 呼び名の希望が読み取れない場合は、必ずnullのままにする
+
+【learned_user_display_name(ほとんどの場合はnullでよい。むやみに使わないこと)】
+利用者本人の呼び名は申込み時には聞いていないため、まだ分かっていない場合だけ会話の中で確認します。
+- 【この利用者についてこれまでに分かっていること】欄の案内に従って呼び名を尋ね、利用者が名前・呼び名を
+  答えてくれた場合だけ、その文字列をそのまま入れてください(例: "たかしさん"と呼ばれたいなら"たかし")。
+- 既に呼び名が分かっている場合(会話の冒頭で「〇〇さん」と呼びかけている場合)は、この項目は使わず
+  必ずnullのままにする
+- 尋ねてもはぐらかされた・答えてもらえなかった場合も、必ずnullのままにする
 
 【needs_lookup(ほとんどの場合はnullでよい。むやみに使わないこと)】
 利用者の質問が、上記の要約・「今後の予定の正確な一覧」・直近の会話履歴のいずれを見ても自信を持って正確に
@@ -1283,6 +1298,7 @@ PROMPT;
 【この利用者についてこれまでに分かっていること(定期的に自動更新される要約。参考情報として会話に自然に活かすこと)】
 {$summaryBlock}
 {$dataSparseLine}
+{$nameUnknownLine}
 
 【今後の予定の正確な一覧】
 上の「予定」の要約は概要であり、個々の予定が漏れている可能性があります。
