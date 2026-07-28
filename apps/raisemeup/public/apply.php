@@ -80,6 +80,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // family_accounts.emailはUNIQUEなので、二重送信(戻る操作での再送信等)や同一メールでの再申込みを
         // ここで検知し、DB例外による汎用エラーではなく専用の案内を出す
         $duplicateFamily = (new FamilyAccountRepository($pdo))->findByEmail($formValues['family_email']);
+
+        // LINE未連携(status='pending')かつ支払いも一切発生していない申込みは、実質何も使われていないので
+        // check_subscriptions.phpのABANDON_TIMEOUT_DAYS(3日)を待たず、再申込みの時点で即座に放置扱いにして
+        // emailを解放する。既に支払い情報が紐づいている場合は誤って解約してしまうと危険なので対象外とし、
+        // 従来通り「心当たりがなければsupport@へ」の案内のまま3日タイムアウトに委ねる
+        if ($duplicateFamily !== null) {
+            $linkedUserStmt = $pdo->prepare(
+                'SELECT u.id, u.status FROM user_family_links l
+                 JOIN users u ON u.id = l.user_id
+                 WHERE l.family_account_id = ? ORDER BY l.id DESC LIMIT 1'
+            );
+            $linkedUserStmt->execute([$duplicateFamily['id']]);
+            $linkedUser = $linkedUserStmt->fetch(PDO::FETCH_ASSOC);
+
+            $latestSubStmt = $pdo->prepare(
+                'SELECT id, payment_customer_ref FROM subscriptions WHERE family_account_id = ? ORDER BY id DESC LIMIT 1'
+            );
+            $latestSubStmt->execute([$duplicateFamily['id']]);
+            $latestSub = $latestSubStmt->fetch(PDO::FETCH_ASSOC);
+
+            $isReclaimable = $linkedUser !== false
+                && $linkedUser['status'] === 'pending'
+                && (!$latestSub || empty($latestSub['payment_customer_ref']));
+
+            if ($isReclaimable) {
+                if ($latestSub) {
+                    (new SubscriptionRepository($pdo))->markAbandoned((int) $latestSub['id']);
+                }
+                (new FamilyAccountRepository($pdo))->clearEmail((int) $duplicateFamily['id']);
+                $duplicateFamily = null;
+            }
+        }
     }
     if ($formValues['user_display_name'] === '') {
         $errors[] = 'ご利用者様(ご本人)のお名前・呼び名を入力してください。';
