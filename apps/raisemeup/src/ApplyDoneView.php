@@ -200,7 +200,9 @@ function renderLineStep(
       <?php if ($friendFlag === false): ?>
         <p class="hint" style="color:#a12a1f;">友だち追加が完了していないようです。トークを受け取るには「<?= h($accountName) ?>」の友だち追加も必要です。</p>
         <?php if ($fallbackAddFriendUrl !== ''): ?>
-          <a class="button" href="<?= h($fallbackAddFriendUrl) ?>"><?= Layout::icon('chat') ?> 友だち追加はこちら</a>
+          <a class="button" href="<?= h($fallbackAddFriendUrl) ?>" target="_blank" rel="noopener">
+            <?= Layout::icon('chat') ?> 友だち追加はこちら(別タブで開きます)
+          </a>
         <?php endif; ?>
       <?php else: ?>
         <p class="hint">連携が完了しました。</p>
@@ -221,7 +223,9 @@ function renderLineStep(
     <?php else: ?>
       <p class="hint">LINEで「<?= h($accountName) ?>」公式アカウントを友だち追加し、最初のメッセージとして下記のコードをそのまま送信してください。</p>
       <?php if ($fallbackAddFriendUrl !== ''): ?>
-        <a class="button" href="<?= h($fallbackAddFriendUrl) ?>"><?= Layout::icon('chat') ?> 友だち追加はこちら</a>
+        <a class="button" href="<?= h($fallbackAddFriendUrl) ?>" target="_blank" rel="noopener">
+          <?= Layout::icon('chat') ?> 友だち追加はこちら(別タブで開きます)
+        </a>
         <div class="qr-box">
           <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=<?= urlencode($fallbackAddFriendUrl) ?>" alt="友だち追加QRコード" width="160" height="160">
         </div>
