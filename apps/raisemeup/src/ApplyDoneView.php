@@ -134,7 +134,7 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
 
     <?php renderLineStep(
       '① ご本人のLINE連携(必須)',
-      'TAYORI',
+      Config::get('LINE_BOT_DISPLAY_NAME', 'TAYORI'),
       $userLinked,
       $userLoginUrl,
       $userFriendFlag,
@@ -147,7 +147,7 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
         <p>ご家族様ご自身のLINEでも、無料期間終了のお知らせなどを受け取りたい場合は、以下のステップをどうぞ(任意)。</p>
         <?php renderLineStep(
           '② ご家族向け通知の連携(任意)',
-          'TAYORIサポート',
+          Config::get('LINE_FAMILY_BOT_DISPLAY_NAME', 'TAYORIサポート'),
           $familyLinked,
           $familyLoginUrl,
           $familyFriendFlag,
