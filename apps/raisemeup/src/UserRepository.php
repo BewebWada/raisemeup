@@ -18,6 +18,14 @@ class UserRepository
         return $user ?: null;
     }
 
+    public function find(int $id): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM users WHERE id = ?');
+        $stmt->execute([$id]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $user ?: null;
+    }
+
     public function findByInviteCode(string $code): ?array
     {
         $stmt = $this->pdo->prepare('SELECT * FROM users WHERE invite_code = ?');
@@ -34,14 +42,16 @@ class UserRepository
     {
         $inviteCode = InviteCodeGenerator::generate($this->pdo, 'users');
         $this->pdo->prepare(
-            "INSERT INTO users (invite_code, display_name, phone, address, birthdate, companion_gender, status)
-             VALUES (?, ?, ?, ?, ?, ?, 'pending')"
+            "INSERT INTO users (invite_code, display_name, phone, postal_code, address, birthdate, gender, companion_gender, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')"
         )->execute([
             $inviteCode,
             $data['display_name'] ?: null,
             $data['phone'] ?: null,
+            $data['postal_code'] ?: null,
             $data['address'] ?: null,
             $data['birthdate'] ?: null,
+            $data['gender'] ?: null,
             $data['companion_gender'],
         ]);
 
@@ -51,6 +61,22 @@ class UserRepository
     public function setCompanionName(int $id, string $companionName): void
     {
         $this->pdo->prepare('UPDATE users SET companion_name = ? WHERE id = ?')->execute([$companionName, $id]);
+    }
+
+    // マイページからの登録情報編集用
+    public function update(int $id, array $data): void
+    {
+        $this->pdo->prepare(
+            'UPDATE users SET display_name = ?, phone = ?, postal_code = ?, address = ?, birthdate = ?, gender = ? WHERE id = ?'
+        )->execute([
+            $data['display_name'] ?: null,
+            $data['phone'] ?: null,
+            $data['postal_code'] ?: null,
+            $data['address'] ?: null,
+            $data['birthdate'] ?: null,
+            $data['gender'] ?: null,
+            $id,
+        ]);
     }
 
     // 招待コードでのLINE連携が成功した際に呼ぶ。コードは使い切りなのでクリアし、activeにする。

@@ -74,4 +74,10 @@ class SubscriptionRepository
     {
         $this->pdo->prepare("UPDATE subscriptions SET status = 'cancelled' WHERE id = ?")->execute([$id]);
     }
+
+    // LINE未連携のまま放置され、タイムアウトで自動キャンセルされた契約
+    public function markAbandoned(int $id): void
+    {
+        $this->pdo->prepare("UPDATE subscriptions SET status = 'abandoned' WHERE id = ?")->execute([$id]);
+    }
 }
