@@ -74,6 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = 'お申込者(ご家族)様のお名前を入力してください。';
     }
     $duplicateFamily = null;
+    $duplicateCanLogin = false;
     if ($formValues['family_email'] !== '' && !filter_var($formValues['family_email'], FILTER_VALIDATE_EMAIL)) {
         $errors[] = 'メールアドレスの形式が正しくありません。';
     } elseif ($formValues['family_email'] !== '') {
@@ -84,7 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // LINE未連携(status='pending')かつ支払いも一切発生していない申込みは、実質何も使われていないので
         // check_subscriptions.phpのABANDON_TIMEOUT_DAYS(3日)を待たず、再申込みの時点で即座に放置扱いにして
         // emailを解放する。既に支払い情報が紐づいている場合は誤って解約してしまうと危険なので対象外とし、
-        // 従来通り「心当たりがなければsupport@へ」の案内のまま3日タイムアウトに委ねる
+        // 「ログイン案内」または「心当たりがなければsupport@へ」の案内に振り分ける
         if ($duplicateFamily !== null) {
             $linkedUserStmt = $pdo->prepare(
                 'SELECT u.id, u.status FROM user_family_links l
@@ -110,6 +111,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 (new FamilyAccountRepository($pdo))->clearEmail((int) $duplicateFamily['id']);
                 $duplicateFamily = null;
+            } else {
+                // マイページログインは家族(お申込者)自身のline_user_idで本人確認するため、
+                // それが設定済み(=ログイン可能)かつ支払いも完了しているなら、迷わせず
+                // 「申込み」ではなく「ログイン」に誘導する
+                $duplicateCanLogin = $duplicateFamily['line_user_id'] !== null
+                    && !empty($latestSub['payment_customer_ref'] ?? null);
             }
         }
     }
@@ -224,9 +231,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-renderForm($planRepo->getActivePlans(), $errors, $formValues, $_SESSION['apply_csrf_token'], $duplicateFamily ?? null);
+renderForm($planRepo->getActivePlans(), $errors, $formValues, $_SESSION['apply_csrf_token'], $duplicateFamily ?? null, $duplicateCanLogin ?? false);
 
-function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?array $duplicateFamily = null): void
+function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?array $duplicateFamily = null, bool $duplicateCanLogin = false): void
 {
     Layout::renderHeader('apply', 'ご利用申込');
     ?>
@@ -262,6 +269,8 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
     <div class="notice">
       <?php if ($resumable): ?>
         このメールアドレスでは、完了していないお申込みがあります。<a href="/apply/?done=1">続きはこちらから</a>お進みください。
+      <?php elseif ($duplicateCanLogin): ?>
+        このメールアドレスは既にご登録済みです。お手数ですが<a href="/mypage_login_start.php">マイページにログイン</a>してご確認ください。
       <?php else: ?>
         このメールアドレスでは既にお申込みをいただいています。心当たりがない場合や、続きのお手続きについては<a href="mailto:support@tayori-net.jp">support@tayori-net.jp</a>までご連絡ください。
       <?php endif; ?>
