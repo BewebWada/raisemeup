@@ -121,4 +121,11 @@ return [
     'family_accounts.friend_confirmed_at' => "ALTER TABLE family_accounts
         ADD COLUMN IF NOT EXISTS friend_confirmed_at DATETIME DEFAULT NULL
         COMMENT '友だち追加(followイベント)が確認できた時刻。未確認ならNULL' AFTER line_user_id;",
+
+    // 初回だけ自動生成して以降固定する、AIコンパニオン自身の軽い自己紹介(2〜3個の短い文の配列)。
+    // 会話中に自分の話として使うことで、利用者から聞き出すだけの一方的なやり取りにならないようにする。
+    // 将来項目を増やしても既存データの移行が不要なようJSON型にしている
+    'users.companion_persona' => "ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS companion_persona JSON DEFAULT NULL
+        COMMENT '初回に一度だけ自動生成し以降固定するAIコンパニオン自身の軽い自己紹介(短い文の配列)' AFTER companion_name;",
 ];

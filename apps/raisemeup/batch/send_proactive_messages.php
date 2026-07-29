@@ -19,6 +19,8 @@ require_once __DIR__ . '/../src/Config.php';
 require_once __DIR__ . '/../src/LineClient.php';
 require_once __DIR__ . '/../src/ClaudeClient.php';
 require_once __DIR__ . '/../src/SummaryRepository.php';
+require_once __DIR__ . '/../src/TopicCoverageRepository.php';
+require_once __DIR__ . '/../src/UserRepository.php';
 require_once __DIR__ . '/../src/SubscriptionRepository.php';
 require_once __DIR__ . '/../src/FamilyAccountRepository.php';
 require_once __DIR__ . '/../src/ScheduleRepository.php';
@@ -83,6 +85,8 @@ $lineClient = new LineClient(Config::get('LINE_CHANNEL_SECRET'), Config::get('LI
 $familyLineClient = new LineClient(Config::get('LINE_FAMILY_CHANNEL_SECRET'), Config::get('LINE_FAMILY_CHANNEL_ACCESS_TOKEN'));
 $claudeClient = new ClaudeClient(Config::get('ANTHROPIC_API_KEY'), Config::get('CLAUDE_MODEL'));
 $summaryRepo = new SummaryRepository($pdo);
+$topicCoverageRepo = new TopicCoverageRepository($pdo);
+$userRepo = new UserRepository($pdo);
 $subscriptionRepo = new SubscriptionRepository($pdo);
 $familyRepo = new FamilyAccountRepository($pdo);
 $medicationLogRepo = new MedicationLogRepository($pdo);
@@ -223,17 +227,38 @@ function getRecentHistoryForUser(PDO $pdo, int $userId, int $limit = 10): array
     ], $rows);
 }
 
-// 直近でこちらから送った会話文(新しい順)。generateProactiveMessageが、要約に載る事実が少ない利用者ほど
-// 同じ話題(トマトの収穫等)を毎回持ち出してしまう問題を避けるための材料として使う
-function getRecentOutboundMessages(PDO $pdo, int $userId, int $limit = 5): array
+// 直近でこちらから送った会話文(新しい順、日時付き)。generateProactiveMessageが、要約に載る事実が
+// 少ない利用者ほど同じ話題(トマトの収穫等)を毎回持ち出してしまう問題を避けるための材料として使う。
+// 日時を持たせているのは、日をまたいだ朝夕のチェックインでも前日の話題を蒸し返さないようにするため
+// (limit=8は、1日2回のCHECKIN_WINDOWS+気まぐれな声かけを合わせて概ね2日分をカバーする目安)
+function getRecentOutboundMessages(PDO $pdo, int $userId, int $limit = 8): array
 {
     $stmt = $pdo->prepare(
-        "SELECT content FROM conversations WHERE user_id = ? AND direction = 'outbound' ORDER BY created_at DESC LIMIT ?"
+        "SELECT content, created_at FROM conversations WHERE user_id = ? AND direction = 'outbound' ORDER BY created_at DESC LIMIT ?"
     );
     $stmt->bindValue(1, $userId, PDO::PARAM_INT);
     $stmt->bindValue(2, $limit, PDO::PARAM_INT);
     $stmt->execute();
-    return $stmt->fetchAll(PDO::FETCH_COLUMN);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+// 初回のみ、AIコンパニオン自身の軽い自己紹介を生成して保存する(以降は固定して使い回す)。
+// ConversationHandler::ensureCompanionPersonaと同じ考え方(冪等・遅延生成)をバッチ側でも行うことで、
+// 新規ユーザーだけでなくこの機能導入前からの既存ユーザーにも、次に声をかけるタイミングで行き渡る
+function ensureCompanionPersonaForBatchRow(array $row, ClaudeClient $claudeClient, UserRepository $userRepo): array
+{
+    if (!empty($row['companion_persona'])) {
+        $decoded = json_decode((string) $row['companion_persona'], true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    $companionName = $row['companion_name'] ?: 'たより';
+    $companionGender = ($row['companion_gender'] ?? null) === 'random' ? null : $row['companion_gender'];
+    $facts = $claudeClient->generateCompanionPersona($companionName, $companionGender);
+    if (!empty($facts)) {
+        $userRepo->setCompanionPersona((int) $row['id'], $facts);
+    }
+    return $facts;
 }
 
 // 直近$hours時間以内に、様子見レベル(low)を超える(medium/high)リスク検知の記録があるか
@@ -596,7 +621,8 @@ if ($isQuietHoursNow) {
     // --- 2. 気まぐれな声かけ(直近の会話有無によらず、友達付き合いのように一定確率で) ---
     // last_contact_at: この利用者との最新の会話時刻(inbound/outbound問わず)。一度も会話が無ければNULL
     $stmt = $pdo->prepare(
-        "SELECT u.id, u.line_user_id, u.display_name, u.companion_name, u.gender, u.quiet_hours_start, u.quiet_hours_end,
+        "SELECT u.id, u.line_user_id, u.display_name, u.companion_name, u.companion_gender, u.companion_persona,
+                u.gender, u.quiet_hours_start, u.quiet_hours_end,
                 MAX(c.created_at) AS last_contact_at
          FROM users u
          LEFT JOIN conversations c ON c.user_id = u.id
@@ -635,6 +661,8 @@ if ($isQuietHoursNow) {
             continue; // 抽選漏れ。毎回送るわけではない、というのがポイントなので次回に委ねる
         }
         $summaries = $summaryRepo->getAllForUser((int) $row['id']);
+        $topicCoverage = $topicCoverageRepo->getAllForUser((int) $row['id']);
+        $personaFacts = ensureCompanionPersonaForBatchRow($row, $claudeClient, $userRepo);
         $companionName = $row['companion_name'] ?: 'たより';
         $hadPendingWorry = hasPendingUrgentSilenceAlert($pdo, (int) $row['id']);
         $recentOutboundMessages = getRecentOutboundMessages($pdo, (int) $row['id']);
@@ -645,7 +673,9 @@ if ($isQuietHoursNow) {
             $row['gender'],
             $isGuaranteed,
             $hadPendingWorry,
-            $recentOutboundMessages
+            $recentOutboundMessages,
+            $topicCoverage,
+            $personaFacts
         );
 
         if ($text === '') {

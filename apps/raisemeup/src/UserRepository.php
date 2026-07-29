@@ -69,6 +69,13 @@ class UserRepository
         $this->pdo->prepare('UPDATE users SET display_name = ? WHERE id = ?')->execute([$displayName, $id]);
     }
 
+    // 初回のみ生成される、AIコンパニオン自身の軽い自己紹介(以降固定して使い回す)を保存する
+    public function setCompanionPersona(int $id, array $personaFacts): void
+    {
+        $this->pdo->prepare('UPDATE users SET companion_persona = ? WHERE id = ?')
+            ->execute([json_encode($personaFacts, JSON_UNESCAPED_UNICODE), $id]);
+    }
+
     // マイページからの登録情報編集用
     public function update(int $id, array $data): void
     {
