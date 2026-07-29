@@ -131,7 +131,9 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
 
     <p>話し相手の名前は<strong><?= h($r['companion_name']) ?></strong>に決まりました。</p>
 
-    <?php if ($lineError !== ''): ?>
+    <?php if ($lineError === 'user_duplicate'): ?>
+      <div class="errors">このLINEアカウントは、既に別の利用者様として登録済みです。ご本人様ご自身のLINEアカウントで連携してください。</div>
+    <?php elseif ($lineError !== ''): ?>
       <div class="errors">LINEとの連携がうまくいきませんでした。お手数ですが、もう一度お試しください。</div>
     <?php endif; ?>
 

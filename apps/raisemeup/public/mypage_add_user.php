@@ -125,7 +125,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-            header('Location: /apply/resume.php?u=' . urlencode($user['invite_code']));
+            // apply.phpの申込み完了画面(LINE連携ステップUI)をそのまま使う。line_login_callback.php等の
+            // LINE連携まわりの経路がすべてセッションの$_SESSION['apply_result']を前提にしているため、
+            // apply.phpの一人目の申込みフローと同じ形でここでもセッションにセットしておく
+            $_SESSION['apply_result'] = [
+                'user_id' => (int) $user['id'],
+                'family_id' => (int) $family['id'],
+            ];
+            header('Location: /apply/?done=1');
             exit;
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) {
