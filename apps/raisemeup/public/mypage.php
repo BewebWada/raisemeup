@@ -395,6 +395,11 @@ function renderMypage(array $family, array $panels, array $errors, bool $saved, 
   </div>
 <?php endforeach; ?>
 
+<div class="card" style="text-align:center;">
+  <a class="button-billing" href="/mypage_add_user.php"><?= Layout::icon('heart') ?> 利用者を追加する</a>
+  <p class="empty-hint" style="margin-top:8px;">もうお一方のご利用者様を、同じご家族アカウントに追加できます。</p>
+</div>
+
 <div class="card">
   <h2><?= Layout::icon('edit') ?> 登録情報の確認・編集</h2>
   <form method="post" action="/mypage/">

@@ -174,6 +174,13 @@ $stmt = $pdo->query(
      WHERE s.status = 'trial' AND (u.status = 'pending' OR " . $familyIncompleteCondition . ")
        AND s.created_at < DATE_SUB(NOW(), INTERVAL " . ABANDON_TIMEOUT_DAYS . " DAY)"
 );
+// 1家族が複数の利用者を持つ場合(2人目以降をマイページから追加した場合等)、その家族に他の
+// 生きている(abandoned/cancelled以外の)契約が残っていないかをここで確認する。emailはUNIQUE制約
+// 解放のためだけに使う値なので、他の利用者が正常に稼働中の家族のemailまで消してしまわないようにする
+$hasOtherActiveSubStmt = $pdo->prepare(
+    "SELECT 1 FROM subscriptions WHERE family_account_id = ? AND id != ? AND status NOT IN ('abandoned', 'cancelled') LIMIT 1"
+);
+
 $abandonedCount = 0;
 foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
     if (!empty($row['payment_customer_ref'])) {
@@ -186,7 +193,11 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
     }
 
     $subscriptionRepo->markAbandoned((int) $row['id']);
-    $familyRepo->clearEmail((int) $row['family_id']);
+
+    $hasOtherActiveSubStmt->execute([(int) $row['family_id'], (int) $row['id']]);
+    if ($hasOtherActiveSubStmt->fetchColumn() === false) {
+        $familyRepo->clearEmail((int) $row['family_id']);
+    }
 
     if (!empty($row['family_email'])) {
         $displayName = $row['user_display_name'] ?: 'ご利用者様';

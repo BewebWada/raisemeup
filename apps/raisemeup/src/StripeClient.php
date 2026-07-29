@@ -50,6 +50,22 @@ class StripeClient
         return $this->request('POST', '/checkout/sessions', $params + ['mode' => 'subscription']);
     }
 
+    // 既にCustomerに保存済みの支払い方法を使って、Checkoutを経由せず直接Subscriptionを作成する。
+    // 家族が既に契約済み(=カード登録済み)の状態で2人目以降の利用者を追加する際に使い、
+    // カード情報の再入力を発生させないための経路(1人目の初回契約はCheckout Session経由のまま)
+    public function createSubscription(string $customerId, string $priceId, int $trialDays, array $metadata = []): array
+    {
+        $params = [
+            'customer' => $customerId,
+            'items' => [['price' => $priceId]],
+            'trial_period_days' => $trialDays,
+        ];
+        if (!empty($metadata)) {
+            $params['metadata'] = $metadata;
+        }
+        return $this->request('POST', '/subscriptions', $params);
+    }
+
     // 即時キャンセル(日割り等は行わない)。放置された未連携契約が意図せず課金される前に止める用途で使う
     public function cancelSubscription(string $subscriptionId): array
     {

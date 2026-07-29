@@ -91,6 +91,13 @@ function handleInvoicePaid(SubscriptionRepository $subscriptionRepo, array $invo
     if ($stripeSubscriptionId === '') {
         return;
     }
+    // trial_period_daysを指定してSubscriptionを作成すると、Stripeはトライアル開始と同時に
+    // 金額0円の請求書を自動発行しinvoice.payment_succeededを送ってくる(実際の課金ではない)。
+    // これをそのまま「支払い済み」として扱うと、トライアル期間中にもかかわらずstatusが
+    // 'active'に変わってしまい、マイページの表示や無料期間終了リマインドが崩れるため無視する
+    if ((int) ($invoice['amount_paid'] ?? 0) === 0) {
+        return;
+    }
     $sub = $subscriptionRepo->findByStripeSubscriptionId($stripeSubscriptionId);
     if ($sub === null) {
         return;
