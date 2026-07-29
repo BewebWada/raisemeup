@@ -151,7 +151,7 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
 
     <?php if ($userFriendConfirmed): ?>
       <div class="optional">
-        <p>続いて、ご家族様ご自身のLINEでも連携をお願いします。無料期間終了のお知らせなど、お支払いに関するご連絡はこちらのアカウントからお送りします。</p>
+        <p>続けて、ご家族様ご自身のLINE連携をお願いします(必須)。無料期間終了のお知らせなど大切なご連絡をお送りするため、こちらが完了していないとお申込みが自動的にキャンセルとなりますのでご注意ください。</p>
         <?php renderLineStep(
           '② ご家族向け通知の連携(必須)',
           'family',

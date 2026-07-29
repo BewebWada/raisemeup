@@ -74,12 +74,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = 'お申込者(ご家族)様のお名前を入力してください。';
     }
     $duplicateFamily = null;
+    $duplicateCanLogin = false;
     if ($formValues['family_email'] !== '' && !filter_var($formValues['family_email'], FILTER_VALIDATE_EMAIL)) {
         $errors[] = 'メールアドレスの形式が正しくありません。';
     } elseif ($formValues['family_email'] !== '') {
         // family_accounts.emailはUNIQUEなので、二重送信(戻る操作での再送信等)や同一メールでの再申込みを
         // ここで検知し、DB例外による汎用エラーではなく専用の案内を出す
         $duplicateFamily = (new FamilyAccountRepository($pdo))->findByEmail($formValues['family_email']);
+
+        // 本人・ご家族どちらのLINE連携も必須のため、どちらか一方でも未連携かつ支払いも一切発生して
+        // いない申込みは、実質何も使われていないので check_subscriptions.php の ABANDON_TIMEOUT_DAYS
+        // (3日)を待たず、再申込みの時点で即座に放置扱いにしてemailを解放する。既に支払い情報が
+        // 紐づいている場合は誤って解約してしまうと危険なので対象外とし、
+        // 「ログイン案内」または「心当たりがなければsupport@へ」の案内に振り分ける
+        if ($duplicateFamily !== null) {
+            $linkedUserStmt = $pdo->prepare(
+                'SELECT u.id, u.status FROM user_family_links l
+                 JOIN users u ON u.id = l.user_id
+                 WHERE l.family_account_id = ? ORDER BY l.id DESC LIMIT 1'
+            );
+            $linkedUserStmt->execute([$duplicateFamily['id']]);
+            $linkedUser = $linkedUserStmt->fetch(PDO::FETCH_ASSOC);
+
+            $latestSubStmt = $pdo->prepare(
+                'SELECT id, payment_customer_ref FROM subscriptions WHERE family_account_id = ? ORDER BY id DESC LIMIT 1'
+            );
+            $latestSubStmt->execute([$duplicateFamily['id']]);
+            $latestSub = $latestSubStmt->fetch(PDO::FETCH_ASSOC);
+
+            // ご家族側は「LINEログイン+友だち追加」までが必須のため、line_user_idの有無だけでなく
+            // friend_confirmed_atも見て判定する(check_subscriptions.phpの放置判定と同じ基準)
+            $familyIncomplete = $duplicateFamily['line_user_id'] === null || $duplicateFamily['friend_confirmed_at'] === null;
+            $isReclaimable = $linkedUser !== false
+                && ($linkedUser['status'] === 'pending' || $familyIncomplete)
+                && (!$latestSub || empty($latestSub['payment_customer_ref']));
+
+            if ($isReclaimable) {
+                if ($latestSub) {
+                    (new SubscriptionRepository($pdo))->markAbandoned((int) $latestSub['id']);
+                }
+                (new FamilyAccountRepository($pdo))->clearEmail((int) $duplicateFamily['id']);
+                $duplicateFamily = null;
+            } else {
+                // マイページログインは家族(お申込者)自身のline_user_idで本人確認するため、
+                // それが設定済み(=ログイン可能)かつ支払いも完了しているなら、迷わせず
+                // 「申込み」ではなく「ログイン」に誘導する
+                $duplicateCanLogin = $duplicateFamily['line_user_id'] !== null
+                    && !empty($latestSub['payment_customer_ref'] ?? null);
+            }
+        }
     }
     // ハイフンありなし両方許容し、DBには数字7桁のみを保存する
     $formValues['user_zip'] = preg_replace('/[^0-9]/', '', $formValues['user_zip']);
@@ -191,9 +234,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-renderForm($planRepo->getActivePlans(), $errors, $formValues, $_SESSION['apply_csrf_token'], $duplicateFamily ?? null);
+renderForm($planRepo->getActivePlans(), $errors, $formValues, $_SESSION['apply_csrf_token'], $duplicateFamily ?? null, $duplicateCanLogin ?? false);
 
-function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?array $duplicateFamily = null): void
+function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?array $duplicateFamily = null, bool $duplicateCanLogin = false): void
 {
     Layout::renderHeader('apply', 'ご利用申込');
     ?>
@@ -229,6 +272,8 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
     <div class="notice">
       <?php if ($resumable): ?>
         このメールアドレスでは、完了していないお申込みがあります。<a href="/apply/?done=1">続きはこちらから</a>お進みください。
+      <?php elseif ($duplicateCanLogin): ?>
+        このメールアドレスは既にご登録済みです。お手数ですが<a href="/mypage_login_start.php">マイページにログイン</a>してご確認ください。
       <?php else: ?>
         このメールアドレスでは既にお申込みをいただいています。心当たりがない場合や、続きのお手続きについては<a href="mailto:support@tayori-net.jp">support@tayori-net.jp</a>までご連絡ください。
       <?php endif; ?>
