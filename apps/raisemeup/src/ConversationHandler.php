@@ -131,7 +131,7 @@ class ConversationHandler
         // ③.5 直近で「危機感のある」安否確認通知(send_proactive_messages.phpのURGENT_SILENCE_HOURS超過)が
         // 家族に送られていた場合、今回inboundが確認できた時点で「連絡が取れました」の解除連絡を送る。
         // Claude呼び出しの成否に関わらず安否確認としての価値があるので、なるべく早い段階で行う
-        $this->resolveUrgentSilenceIfPending((int) $user['id'], (string) $user['display_name']);
+        $this->resolveUrgentSilenceIfPending((int) $user['id'], $this->familyFacingName($user));
 
         // ④ Claude API呼び出し
         $history = $this->buildRecentHistory((int) $user['id'], $conversationId);
@@ -174,7 +174,7 @@ class ConversationHandler
         // ④.5 ご家族からの伝言を今回の返信で伝えられたと判定された場合、配信済みにして家族へ確認連絡を送る
         if (!empty($pendingFamilyMessages) && !empty($result['family_message_delivered'])) {
             $this->familyMessageRepo->markDelivered(array_column($pendingFamilyMessages, 'id'));
-            $this->notifyFamilyOfMessageDelivered((int) $user['id'], (string) $user['display_name']);
+            $this->notifyFamilyOfMessageDelivered((int) $user['id'], $this->familyFacingName($user));
         }
 
         // ⑤ 人物・予定の抽出結果をUPSERT
@@ -259,7 +259,7 @@ class ConversationHandler
 
             // 様子見レベル(low)は通知せずマイページの「安心レポート」への記録のみに留める(通知過多の防止)
             if (RiskDetector::levelRank($risk['risk_level']) >= RiskDetector::levelRank(self::RISK_NOTIFY_MIN_LEVEL)) {
-                $this->notifyFamilyOfRisk((int) $user['id'], (string) $user['display_name'], $risk, $userMessage, $riskEventId);
+                $this->notifyFamilyOfRisk((int) $user['id'], $this->familyFacingName($user), $risk, $userMessage, $riskEventId);
             }
         }
 
@@ -313,7 +313,7 @@ class ConversationHandler
 
         $this->resolveUrgentSilenceIfPending(
             (int) $user['id'],
-            (string) $user['display_name'],
+            $this->familyFacingName($user),
             ['latitude' => $latitude, 'longitude' => $longitude]
         );
 
@@ -363,6 +363,13 @@ class ConversationHandler
     {
         $seconds = max(2, min(6, mb_strlen($text) * 0.08));
         return (int) ($seconds * 1_000_000);
+    }
+
+    // ご家族向けLINE通知での呼びかけ名。会話用の呼び名(display_name)ではなく、マイページでご家族が
+    // 登録した氏名(full_name)を優先する(氏名未登録の間だけ呼び名にフォールバックする)
+    private function familyFacingName(array $user): string
+    {
+        return (string) ($user['full_name'] ?: $user['display_name'] ?: '');
     }
 
     /**

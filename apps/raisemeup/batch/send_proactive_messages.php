@@ -332,7 +332,7 @@ function checkUrgentSilenceAndNotify(
     DateTime $now
 ): int {
     $stmt = $pdo->query(
-        "SELECT u.id, u.line_user_id, u.display_name, u.companion_name, u.gender, u.onboarded_at, u.created_at,
+        "SELECT u.id, u.line_user_id, u.display_name, u.full_name, u.companion_name, u.gender, u.onboarded_at, u.created_at,
                 (SELECT MAX(created_at) FROM conversations c WHERE c.user_id = u.id AND c.direction = 'inbound') AS last_inbound_at
          FROM users u
          WHERE u.status = 'active' AND u.line_user_id IS NOT NULL"
@@ -384,7 +384,8 @@ function checkUrgentSilenceAndNotify(
             continue;
         }
 
-        $displayName = $row['display_name'] ?: 'ご利用者様';
+        // 家族への通知は、会話用の呼び名ではなくマイページ登録の氏名を優先する
+        $displayName = $row['full_name'] ?: $row['display_name'] ?: 'ご利用者様';
         $lastMessage = getLastInboundMessage($pdo, $userId);
         $text = buildUrgentSilenceMessage($pdo, $userId, $displayName, $lastInboundAt, $now, $lastMessage);
 
@@ -419,7 +420,7 @@ function checkNoResponseAndNotify(
     $checkDate = $now->format('Y-m-d');
 
     $stmt = $pdo->prepare(
-        "SELECT u.id, u.display_name
+        "SELECT u.id, u.display_name, u.full_name
          FROM users u
          WHERE u.status = 'active' AND u.line_user_id IS NOT NULL
            AND NOT EXISTS (
@@ -452,7 +453,7 @@ function checkNoResponseAndNotify(
             continue;
         }
 
-        $displayName = $row['display_name'] ?: 'ご利用者様';
+        $displayName = $row['full_name'] ?: $row['display_name'] ?: 'ご利用者様';
         $windowText = $window['label'] === 'morning' ? '午前中' : '夜';
         $text = "【TAYORI】{$displayName}様、本日{$windowText}の時間帯でTAYORIとの会話がまだ確認できていません。"
             . "外出中や電話に気づいていないだけのことも多いですが、ご心配な場合は直接ご様子をご確認ください。";

@@ -34,7 +34,7 @@ $insertStmt = $pdo->prepare(
 );
 
 $users = $pdo->query(
-    "SELECT id, display_name, companion_name FROM users WHERE status = 'active'"
+    "SELECT id, display_name, full_name, companion_name FROM users WHERE status = 'active'"
 )->fetchAll(PDO::FETCH_ASSOC);
 
 $sentCount = 0;
@@ -56,10 +56,13 @@ foreach ($users as $user) {
         continue;
     }
 
+    // 家族への通知は、会話用の呼び名ではなくマイページ登録の氏名を優先する
+    $familyFacingName = (string) ($user['full_name'] ?: $user['display_name'] ?: '利用者');
+
     $summaries = $summaryRepo->getAllForUser($userId);
     $digest = $claude->generateFamilyDigest(
         $summaries,
-        (string) ($user['display_name'] ?? '利用者'),
+        $familyFacingName,
         (string) ($user['companion_name'] ?? 'TAYORI')
     );
 
@@ -68,7 +71,7 @@ foreach ($users as $user) {
         continue;
     }
 
-    $header = "【{$user['companion_name']}より、今週の" . ($user['display_name'] ?: '利用者') . "様の様子です】\n\n";
+    $header = "【{$user['companion_name']}より、今週の{$familyFacingName}様の様子です】\n\n";
     $text = $header . $digest;
 
     $pushedToAny = false;

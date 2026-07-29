@@ -119,7 +119,7 @@ function handleInvoicePaymentFailed(PDO $pdo, SubscriptionRepository $subscripti
     $subscriptionRepo->markPastDue((int) $sub['id']);
 
     $stmt = $pdo->prepare(
-        'SELECT u.display_name AS user_display_name, fa.line_user_id AS family_line_user_id, p.name AS plan_name
+        'SELECT u.display_name AS user_display_name, u.full_name AS user_full_name, fa.line_user_id AS family_line_user_id, p.name AS plan_name
          FROM subscriptions s
          JOIN users u ON u.id = s.user_id
          JOIN family_accounts fa ON fa.id = s.family_account_id
@@ -131,7 +131,8 @@ function handleInvoicePaymentFailed(PDO $pdo, SubscriptionRepository $subscripti
     if ($row === false || empty($row['family_line_user_id'])) {
         return;
     }
-    $displayName = $row['user_display_name'] ?: 'ご利用者様';
+    // 家族への通知は、会話用の呼び名ではなくマイページ登録の氏名を優先する
+    $displayName = $row['user_full_name'] ?: $row['user_display_name'] ?: 'ご利用者様';
     $text = "【TAYORI】{$displayName}様の{$row['plan_name']}のお支払いに失敗しました。"
         . "登録されているカード情報をご確認のうえ、Stripeからの請求メールに記載のリンクよりお支払い情報の更新をお願いいたします。"
         . "なお、更新が完了するまでの間もサービスは通常通りご利用いただけます。";

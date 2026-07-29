@@ -76,13 +76,14 @@ class UserRepository
             ->execute([json_encode($personaFacts, JSON_UNESCAPED_UNICODE), $id]);
     }
 
-    // マイページからの登録情報編集用
+    // マイページからの登録情報編集用。display_name(呼び名)は会話の中で確認して設定する運用のため、
+    // ここでは意図的に更新対象に含めない(setDisplayNameは別途ConversationHandlerからのみ呼ばれる)
     public function update(int $id, array $data): void
     {
         $this->pdo->prepare(
-            'UPDATE users SET display_name = ?, phone = ?, postal_code = ?, address = ?, birthdate = ?, gender = ? WHERE id = ?'
+            'UPDATE users SET full_name = ?, phone = ?, postal_code = ?, address = ?, birthdate = ?, gender = ? WHERE id = ?'
         )->execute([
-            $data['display_name'] ?: null,
+            $data['full_name'] ?: null,
             $data['phone'] ?: null,
             $data['postal_code'] ?: null,
             $data['address'] ?: null,

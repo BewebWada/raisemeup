@@ -25,6 +25,13 @@ function h(string $value): string
     return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 }
 
+// マイページの表示・ご家族とのやり取りでは、会話用の呼び名(display_name)ではなく
+// ご家族が登録した氏名(full_name)を優先する。氏名が未登録の間だけ呼び名にフォールバックする
+function userFamilyFacingName(array $u): string
+{
+    return (string) ($u['full_name'] ?: $u['display_name'] ?: '');
+}
+
 const SUBSCRIPTION_STATUS_LABELS = [
     'trial' => '無料お試し中',
     'active' => 'ご利用中',
@@ -138,7 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!in_array($userId, $ownedUserIds, true)) {
             $errors[] = '不正な操作です。';
         } else {
-            $displayName = trim((string) ($_POST['display_name'] ?? ''));
+            $fullName = trim((string) ($_POST['full_name'] ?? ''));
             $phone = trim((string) ($_POST['phone'] ?? ''));
             $zip = preg_replace('/[^0-9]/', '', (string) ($_POST['zip'] ?? ''));
             $address = trim((string) ($_POST['address'] ?? ''));
@@ -157,7 +164,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $userRepo->update($userId, [
-                'display_name' => $displayName,
+                'full_name' => $fullName,
                 'phone' => $phone,
                 'postal_code' => $zip,
                 'address' => $address,
@@ -257,8 +264,9 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
     $tabs = [['key' => 'family', 'label' => 'ご家族について']];
     foreach ($panels as $i => $panel) {
         $u = $panel['user'];
-        $label = $u['display_name'] !== null && $u['display_name'] !== ''
-            ? $u['display_name'] . '様'
+        $name = userFamilyFacingName($u);
+        $label = $name !== ''
+            ? $name . '様'
             : 'ご利用者様' . (count($panels) > 1 ? '(' . ($i + 1) . '人目)' : '');
         $tabs[] = ['key' => 'user-' . (int) $u['id'], 'label' => $label];
     }
@@ -523,8 +531,17 @@ function renderUserPanel(array $panel, array $family, int $savedUserId, int $the
       <input type="hidden" name="action" value="update_user">
       <input type="hidden" name="user_id" value="<?= $userId ?>">
 
-      <label for="user_display_name_<?= $userId ?>">お名前・呼び名</label>
-      <input type="text" id="user_display_name_<?= $userId ?>" name="display_name" value="<?= h((string) $u['display_name']) ?>">
+      <label for="user_full_name_<?= $userId ?>">氏名</label>
+      <input type="text" id="user_full_name_<?= $userId ?>" name="full_name" value="<?= h((string) $u['full_name']) ?>">
+      <div class="hint">マイページの表示や、ご家族へのLINE通知で使用します。</div>
+
+      <label>呼び名(会話で使用)</label>
+      <?php if ($u['display_name'] !== null && $u['display_name'] !== ''): ?>
+        <div class="hint"><?= h($u['display_name']) ?> — 本人との会話の中で確認でき次第、自動的に設定されます。ここからの変更はできません。</div>
+      <?php else: ?>
+        <div class="hint">まだ本人との会話で確認できていません。会話の中でTAYORIが自然に尋ね、確認でき次第自動的に設定されます。</div>
+      <?php endif; ?>
+
       <label for="relation_<?= $userId ?>">続柄</label>
       <input type="text" id="relation_<?= $userId ?>" name="relation" value="<?= h((string) $u['relation']) ?>">
       <label for="user_phone_<?= $userId ?>">電話番号</label>

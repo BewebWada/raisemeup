@@ -64,7 +64,7 @@ function notifyFamilyEmail(?MailClient $mailClient, ?string $email, string $subj
 // trial_ends_atの「日付」がちょうど3日後のtrial契約だけを抽出するので、cronが毎日1回実行される限り
 // 送信済みフラグを持たなくても自然に1回だけ発火する
 $stmt = $pdo->query(
-    "SELECT s.id, u.display_name AS user_display_name, fa.line_user_id AS family_line_user_id,
+    "SELECT s.id, u.display_name AS user_display_name, u.full_name AS user_full_name, fa.line_user_id AS family_line_user_id,
             p.name AS plan_name, p.price_yen, s.trial_ends_at, s.payment_customer_ref
      FROM subscriptions s
      JOIN users u ON u.id = s.user_id
@@ -74,7 +74,8 @@ $stmt = $pdo->query(
 );
 $reminderCount = 0;
 foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-    $displayName = $row['user_display_name'] ?: 'ご利用者様';
+    // 家族への通知は、会話用の呼び名ではなくマイページ登録の氏名を優先する
+    $displayName = $row['user_full_name'] ?: $row['user_display_name'] ?: 'ご利用者様';
     $priceText = "{$row['plan_name']}(月額" . number_format((int) $row['price_yen']) . "円)";
     if (!empty($row['payment_customer_ref'])) {
         // Stripeでカード登録済み: 何もしなくても自動課金される旨の案内のみ
@@ -93,7 +94,7 @@ echo "[OK] trial reminder (3 days before) sent: {$reminderCount}\n";
 // カード登録済みの契約はStripe側で自動課金が走り、その成否はstripe_webhook.phpがstatusに反映するので
 // ここでは触らない(trial_expiredに倒してしまうとWebhookの'active'反映と競合する)。
 $stmt = $pdo->query(
-    "SELECT s.id, u.display_name AS user_display_name, fa.line_user_id AS family_line_user_id
+    "SELECT s.id, u.display_name AS user_display_name, u.full_name AS user_full_name, fa.line_user_id AS family_line_user_id
      FROM subscriptions s
      JOIN users u ON u.id = s.user_id
      JOIN family_accounts fa ON fa.id = s.family_account_id
@@ -107,7 +108,7 @@ $pdo->exec(
 );
 
 foreach ($expired as $row) {
-    $displayName = $row['user_display_name'] ?: 'ご利用者様';
+    $displayName = $row['user_full_name'] ?: $row['user_display_name'] ?: 'ご利用者様';
     $text = "【TAYORI】{$displayName}様の無料期間が終了しました。引き続きご利用いただくには、お支払い情報のご登録をお願いいたします。"
         . "なお、ご登録が完了するまでの間もサービスは通常通りご利用いただけます。";
     notifyFamily($lineClient, $row['family_line_user_id'], $text);
@@ -130,7 +131,7 @@ $familyIncompleteCondition = '(fa.line_user_id IS NULL OR fa.friend_confirmed_at
 
 // 3a. 期限の1日前のリマインド(LINE連携ページへの再開リンクを送る)
 $stmt = $pdo->query(
-    "SELECT u.invite_code AS user_invite_code, u.display_name AS user_display_name,
+    "SELECT u.invite_code AS user_invite_code, u.display_name AS user_display_name, u.full_name AS user_full_name,
             fa.email AS family_email, fa.name AS family_name,
             (u.status = 'pending') AS user_pending, " . $familyIncompleteCondition . " AS family_pending
      FROM subscriptions s
@@ -144,7 +145,7 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
     if (empty($row['family_email'])) {
         continue;
     }
-    $displayName = $row['user_display_name'] ?: 'ご利用者様';
+    $displayName = $row['user_full_name'] ?: $row['user_display_name'] ?: 'ご利用者様';
     $pendingWho = ((bool) $row['user_pending'] && (bool) $row['family_pending'])
         ? "{$displayName}様・ご家族様どちらも"
         : ((bool) $row['user_pending'] ? "{$displayName}様の" : 'ご家族様の');
@@ -165,7 +166,7 @@ echo "[OK] abandonment reminder sent: {$abandonReminderCount}\n";
 // 3b. 期限超過分の自動キャンセル。Stripeの解約に失敗した場合はabandoned化せず翌日に再試行する
 // (課金停止を確認できていないのにemailを解放してしまうと、二重にサービスを使われる余地が生まれるため)
 $stmt = $pdo->query(
-    "SELECT s.id, s.payment_customer_ref, u.display_name AS user_display_name,
+    "SELECT s.id, s.payment_customer_ref, u.display_name AS user_display_name, u.full_name AS user_full_name,
             fa.id AS family_id, fa.email AS family_email, fa.name AS family_name,
             (u.status = 'pending') AS user_pending, " . $familyIncompleteCondition . " AS family_pending
      FROM subscriptions s
@@ -200,7 +201,7 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
     }
 
     if (!empty($row['family_email'])) {
-        $displayName = $row['user_display_name'] ?: 'ご利用者様';
+        $displayName = $row['user_full_name'] ?: $row['user_display_name'] ?: 'ご利用者様';
         $pendingWho = ((bool) $row['user_pending'] && (bool) $row['family_pending'])
             ? "{$displayName}様・ご家族様どちらの"
             : ((bool) $row['user_pending'] ? "{$displayName}様の" : 'ご家族様の');

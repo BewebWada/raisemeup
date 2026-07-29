@@ -128,4 +128,10 @@ return [
     'users.companion_persona' => "ALTER TABLE users
         ADD COLUMN IF NOT EXISTS companion_persona JSON DEFAULT NULL
         COMMENT '初回に一度だけ自動生成し以降固定するAIコンパニオン自身の軽い自己紹介(短い文の配列)' AFTER companion_name;",
+
+    // display_name(呼び名)は会話の中でTAYORIが呼びかける用途に限定し、こちらはマイページでご家族が
+    // 入力する管理用の氏名。マイページ表示や家族向けLINE通知など、ご家族とのやり取りではこちらを優先して使う
+    'users.full_name' => "ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS full_name VARCHAR(100) DEFAULT NULL
+        COMMENT '氏名(管理用表示・ご家族とのやり取りで使用。会話上の呼び名とは別)' AFTER display_name;",
 ];
