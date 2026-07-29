@@ -511,9 +511,9 @@ class ConversationHandler
             // followイベントを待たずその場でオンボード完了にしてよい
             $this->userRepo->linkLineUserId($userId, $lineUserId);
             $this->userRepo->markOnboarded($userId);
-            $displayName = $pendingUser['display_name'] ?: 'あなた';
             $companionName = $pendingUser['companion_name'] ?: 'たより';
-            $welcomeText = "はじめまして。{$displayName}さんのお話し相手になります、{$companionName}です。これからよろしくお願いしますね。";
+            // display_nameはこの時点では未取得のため名前で呼びかけず、呼び名は会話の中でさりげなく尋ねる
+            $welcomeText = "はじめまして。お話し相手になります、{$companionName}です。これからよろしくお願いしますね。\nよかったら、何てお呼びすればいいか教えてください。";
             $this->pdo->prepare(
                 'INSERT INTO conversations (user_id, direction, message_type, content) VALUES (?, "outbound", "text", ?)'
             )->execute([$userId, $welcomeText]);
