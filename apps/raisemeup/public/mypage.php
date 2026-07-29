@@ -67,14 +67,19 @@ $stmt->execute([(int) $family['id']]);
 $ownedUserIds = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
 
 $errors = [];
-$saved = false;
-$themeSaved = false;
+$savedFamily = false;
+$savedUserId = 0;
+$themeSavedUserId = 0;
+// タブ切り替え(CSSのみ)後の再表示で、保存/追加した内容が見えているタブをそのまま維持するための着地先
+$activeTab = 'family';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $token = (string) ($_POST['csrf_token'] ?? '');
+    $action = (string) ($_POST['action'] ?? '');
+
     if (!hash_equals($_SESSION['mypage_csrf_token'], $token)) {
         $errors[] = 'フォームの有効期限が切れました。お手数ですがもう一度お試しください。';
-    } elseif (($_POST['action'] ?? 'update_profile') === 'add_theme') {
+    } elseif ($action === 'add_theme') {
         $themeUserId = (int) ($_POST['theme_user_id'] ?? 0);
         $themeText = trim((string) ($_POST['theme_text'] ?? ''));
         $themePlanCode = $pdo->prepare(
@@ -86,18 +91,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = '不正な操作です。';
         } elseif ($themeText === '') {
             $errors[] = 'テーマを入力してください。';
+            $activeTab = 'user-' . $themeUserId;
         } elseif (!in_array($themePlanCode->fetchColumn(), RISK_REPORT_PLAN_CODES, true)) {
             $errors[] = 'テーマ設定は、寄り添いスタンダード以上のプランでご利用いただけます。';
+            $activeTab = 'user-' . $themeUserId;
         } else {
             $familyThemeRepo->add($themeUserId, (int) $family['id'], $themeText);
-            $themeSaved = true;
+            $themeSavedUserId = $themeUserId;
+            $activeTab = 'user-' . $themeUserId;
         }
-    } elseif (($_POST['action'] ?? '') === 'delete_theme') {
+    } elseif ($action === 'delete_theme') {
+        $themeUserId = (int) ($_POST['theme_user_id'] ?? 0);
         $familyThemeRepo->cancel((int) ($_POST['theme_id'] ?? 0), (int) $family['id']);
-    } else {
+        $activeTab = 'user-' . $themeUserId;
+    } elseif ($action === 'update_family') {
         $familyName = trim((string) ($_POST['family_name'] ?? ''));
         $familyEmail = trim((string) ($_POST['family_email'] ?? ''));
         $familyPhone = trim((string) ($_POST['family_phone'] ?? ''));
+        $activeTab = 'family';
 
         if ($familyName === '') {
             $errors[] = 'お名前を入力してください。';
@@ -117,47 +128,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'email' => $familyEmail,
                 'phone' => $familyPhone,
             ]);
+            $family = $familyRepo->find((int) $family['id']);
+            $savedFamily = true;
+        }
+    } elseif ($action === 'update_user') {
+        $userId = (int) ($_POST['user_id'] ?? 0);
+        $activeTab = 'user-' . $userId;
 
-            foreach ($_POST['user'] ?? [] as $userId => $fields) {
-                $userId = (int) $userId;
-                if (!in_array($userId, $ownedUserIds, true)) {
-                    // このログイン中の家族に紐づかないuser_idが送られてきた場合は無視する(改ざん対策)
-                    continue;
+        if (!in_array($userId, $ownedUserIds, true)) {
+            $errors[] = '不正な操作です。';
+        } else {
+            $displayName = trim((string) ($_POST['display_name'] ?? ''));
+            $phone = trim((string) ($_POST['phone'] ?? ''));
+            $zip = preg_replace('/[^0-9]/', '', (string) ($_POST['zip'] ?? ''));
+            $address = trim((string) ($_POST['address'] ?? ''));
+            $birthdate = trim((string) ($_POST['birthdate'] ?? ''));
+            $relation = trim((string) ($_POST['relation'] ?? ''));
+            $gender = trim((string) ($_POST['gender'] ?? ''));
+
+            if ($birthdate !== '') {
+                $d = DateTime::createFromFormat('Y-m-d', $birthdate);
+                if (!$d || $d->format('Y-m-d') !== $birthdate) {
+                    $birthdate = '';
                 }
-                $displayName = trim((string) ($fields['display_name'] ?? ''));
-                $phone = trim((string) ($fields['phone'] ?? ''));
-                $zip = preg_replace('/[^0-9]/', '', (string) ($fields['zip'] ?? ''));
-                $address = trim((string) ($fields['address'] ?? ''));
-                $birthdate = trim((string) ($fields['birthdate'] ?? ''));
-                $relation = trim((string) ($fields['relation'] ?? ''));
-                $gender = trim((string) ($fields['gender'] ?? ''));
-
-                if ($birthdate !== '') {
-                    $d = DateTime::createFromFormat('Y-m-d', $birthdate);
-                    if (!$d || $d->format('Y-m-d') !== $birthdate) {
-                        $birthdate = '';
-                    }
-                }
-                if (!in_array($gender, ['male', 'female'], true)) {
-                    $gender = '';
-                }
-
-                $userRepo->update($userId, [
-                    'display_name' => $displayName,
-                    'phone' => $phone,
-                    'postal_code' => $zip,
-                    'address' => $address,
-                    'birthdate' => $birthdate,
-                    'gender' => $gender,
-                ]);
-
-                $pdo->prepare(
-                    'UPDATE user_family_links SET relation = ? WHERE user_id = ? AND family_account_id = ?'
-                )->execute([$relation ?: null, $userId, (int) $family['id']]);
+            }
+            if (!in_array($gender, ['male', 'female'], true)) {
+                $gender = '';
             }
 
-            $family = $familyRepo->find((int) $family['id']);
-            $saved = true;
+            $userRepo->update($userId, [
+                'display_name' => $displayName,
+                'phone' => $phone,
+                'postal_code' => $zip,
+                'address' => $address,
+                'birthdate' => $birthdate,
+                'gender' => $gender,
+            ]);
+
+            $pdo->prepare(
+                'UPDATE user_family_links SET relation = ? WHERE user_id = ? AND family_account_id = ?'
+            )->execute([$relation ?: null, $userId, (int) $family['id']]);
+
+            $savedUserId = $userId;
         }
     }
 }
@@ -199,7 +211,13 @@ foreach ($linkedUsers as $u) {
     ];
 }
 
-renderMypage($family, $panels, $errors, $saved, $themeSaved);
+// POSTでアクティブタブの指定が無かった場合(=通常のGET表示)は、家族自身の情報より
+// 利用者様の様子を確認したいはずなので、いる場合は1人目の利用者タブをデフォルトにする
+if ($_SERVER['REQUEST_METHOD'] !== 'POST' && !empty($panels)) {
+    $activeTab = 'user-' . (int) $panels[0]['user']['id'];
+}
+
+renderMypage($family, $panels, $errors, $savedFamily, $savedUserId, $themeSavedUserId, $activeTab);
 
 function renderLoginScreen(string $loginError): void
 {
@@ -227,73 +245,181 @@ function renderLoginScreen(string $loginError): void
     Layout::renderFooter();
 }
 
-function renderMypage(array $family, array $panels, array $errors, bool $saved, bool $themeSaved): void
+/**
+ * @param array<int, array{user: array, subscription: ?array, summaries: array, riskEvents: array, todayTalkCount: int, themes: array}> $panels
+ */
+function renderMypage(array $family, array $panels, array $errors, bool $savedFamily, int $savedUserId, int $themeSavedUserId, string $activeTab): void
 {
     Layout::renderHeader('mypage', 'マイページ');
+
+    // タブの並び: 先頭が「ご家族について」、続けて利用者様ごと。表示名が未取得(LINE連携前)の場合は
+    // 複数人いると見分けがつかなくなるため、その場合だけ「(n人目)」を補って区別する
+    $tabs = [['key' => 'family', 'label' => 'ご家族について']];
+    foreach ($panels as $i => $panel) {
+        $u = $panel['user'];
+        $label = $u['display_name'] !== null && $u['display_name'] !== ''
+            ? $u['display_name'] . '様'
+            : 'ご利用者様' . (count($panels) > 1 ? '(' . ($i + 1) . '人目)' : '');
+        $tabs[] = ['key' => 'user-' . (int) $u['id'], 'label' => $label];
+    }
     ?>
 <style>
-  .card { max-width: 720px; margin: 0 auto; background:#fff; border-radius:12px; padding:28px 24px; box-shadow:0 2px 8px rgba(0,0,0,0.06); margin-bottom:20px; }
-  .card h1 { font-size:1.3rem; margin-top:0; }
-  .card h2 { display:flex; align-items:center; gap:8px; font-size:1.05rem; margin:0 0 14px; border-left:4px solid #4B8B5A; padding-left:8px; }
-  .top-bar a { display:inline-flex; align-items:center; gap:6px; }
-  .top-bar { display:flex; justify-content:space-between; align-items:baseline; max-width:720px; margin:0 auto 16px; }
-  .top-bar a { font-size:0.9rem; }
-  .errors { background:#fdecea; border:1px solid #f5b0a8; color:#a12a1f; padding:12px 16px; border-radius:8px; margin-bottom:16px; }
-  .notice { background:#eef2ea; border:1px solid #cfdbc4; color:#333; padding:12px 16px; border-radius:8px; margin-bottom:16px; }
-  label { display:block; font-weight:bold; margin:14px 0 4px; font-size:0.95rem; }
+  .mp-shell { max-width:760px; margin:0 auto; }
+  .top-bar { display:flex; justify-content:space-between; align-items:baseline; max-width:760px; margin:0 auto 16px; }
+  .top-bar a { display:inline-flex; align-items:center; gap:6px; font-size:0.9rem; text-decoration:none; color:var(--text-muted); }
+  .top-bar a:hover { color:var(--text); }
+  .card { background:var(--surface); border-radius:var(--radius-lg); padding:26px 24px; box-shadow:0 2px 12px rgba(61,58,53,0.08); margin-bottom:18px; }
+  .card h2 { display:flex; align-items:center; gap:8px; font-size:1.05rem; margin:0 0 16px; color:var(--brand-dark); }
+  .card h2 .icon { color:var(--brand); }
+  .card h3 { font-size:0.95rem; margin:0 0 4px; color:var(--text); }
+  .errors { background:#fdecea; border:1px solid #f5b0a8; color:#a12a1f; padding:12px 16px; border-radius:12px; margin-bottom:16px; }
+  .notice { background:var(--card-mint); border:1px solid #cfdbc4; color:var(--brand-dark); padding:12px 16px; border-radius:12px; margin-bottom:16px; font-weight:bold; }
+  label { display:block; font-weight:bold; margin:14px 0 4px; font-size:0.92rem; color:var(--text); }
   input[type=text], input[type=email], input[type=tel], input[type=date] {
-    width:100%; box-sizing:border-box; padding:10px; font-size:1rem; border:1px solid #ccc; border-radius:6px;
+    width:100%; box-sizing:border-box; padding:10px 12px; font-size:1rem; border:1px solid #ddd6c7; border-radius:10px; background:#fffdf8;
   }
+  input:focus { outline:2px solid var(--brand); outline-offset:1px; }
   .radio-group { display:flex; gap:16px; flex-wrap:wrap; margin:2px 0 4px; }
   .radio-group label { display:flex; align-items:baseline; gap:6px; font-weight:normal; margin:0; }
-  button { margin-top:20px; padding:12px 28px; font-size:1rem; background:#4B8B5A; color:#fff; border:none; border-radius:8px; cursor:pointer; }
-  button:hover { background:#1E4729; }
-  .status-box { background:#f4f8f2; border:1px solid #cfdbc4; border-radius:10px; padding:16px 20px; margin-bottom:16px; }
-  .status-box dt { font-size:0.85rem; color:#777; margin-top:8px; }
+  .hint { font-size:0.85rem; color:var(--text-muted); margin-top:2px; }
+  button, .mp-btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; margin-top:20px; padding:12px 26px; font-size:0.95rem; font-weight:bold; background:var(--brand); color:#fff; border:none; border-radius:var(--radius-pill); cursor:pointer; text-decoration:none; transition:background 0.15s; }
+  button:hover, .mp-btn:hover { background:var(--brand-dark); }
+  .mp-btn .icon { width:1.2em; height:1.2em; }
+  .status-box { background:var(--card-mint); border-radius:14px; padding:16px 20px; margin-bottom:16px; }
+  .status-box dt { font-size:0.82rem; color:var(--brand-dark); opacity:0.75; margin-top:8px; }
   .status-box dt:first-child { margin-top:0; }
-  .status-box dd { margin:2px 0 0; font-weight:bold; }
-  a.button-billing { display:inline-flex; align-items:center; gap:8px; margin-top:12px; padding:10px 20px; background:#4B8B5A; color:#fff; text-decoration:none; border-radius:8px; font-weight:bold; font-size:0.9rem; }
-  a.button-billing .icon { width:1.25em; height:1.25em; }
+  .status-box dd { margin:2px 0 0; font-weight:bold; color:var(--brand-dark); }
   .summary-item { margin-bottom:12px; }
-  .summary-item .label { font-size:0.8rem; color:#777; font-weight:bold; }
+  .summary-item .label { font-size:0.8rem; color:var(--text-muted); font-weight:bold; }
   .summary-item p { margin:2px 0 0; line-height:1.6; }
-  .risk-item { border:1px solid #eee; border-radius:8px; padding:10px 14px; margin-bottom:8px; font-size:0.9rem; }
+  .risk-item { border:1px solid #eee; border-radius:12px; padding:10px 14px; margin-bottom:8px; font-size:0.9rem; }
   .risk-item .level-high { color:#a12a1f; font-weight:bold; }
   .risk-item .level-medium { color:#a9711e; font-weight:bold; }
-  .risk-item .level-low { color:#777; font-weight:bold; }
+  .risk-item .level-low { color:var(--text-muted); font-weight:bold; }
   .risk-item .date { color:#999; font-size:0.8rem; }
   .empty-hint { color:#999; font-size:0.9rem; }
-  .theme-item { display:flex; align-items:center; gap:10px; border:1px solid #eee; border-radius:8px; padding:10px 14px; margin-bottom:8px; font-size:0.9rem; }
+  .theme-item { display:flex; align-items:center; gap:10px; border:1px solid #eee; border-radius:12px; padding:10px 14px; margin-bottom:8px; font-size:0.9rem; }
   .theme-item .theme-text { flex:1; }
   .theme-item .theme-expiry { color:#999; font-size:0.8rem; white-space:nowrap; }
   .theme-delete-form { margin:0; }
-  .theme-delete-btn { margin:0; padding:5px 12px; font-size:0.8rem; background:#eee; color:#555; }
+  .theme-delete-btn { margin:0; padding:6px 14px; font-size:0.8rem; background:#eee; color:#555; }
   .theme-delete-btn:hover { background:#ddd; }
-  .theme-add-form { display:flex; gap:8px; margin-top:12px; }
+  .theme-add-form { display:flex; gap:8px; margin-top:12px; align-items:center; }
   .theme-add-form input[type=text] { flex:1; margin:0; }
-  .theme-add-form button { margin:0; padding:10px 20px; font-size:0.9rem; white-space:nowrap; }
-  .user-block { margin-top:32px; padding-top:20px; border-top:1px solid #eee; }
-  .user-block:first-child { margin-top:0; padding-top:0; border-top:none; }
+  .theme-add-form button { margin:0; padding:11px 22px; font-size:0.9rem; white-space:nowrap; }
+
+  /* --- タブ(ラジオボタンのみで開閉するCSSタブ、JS不要) --- */
+  .mp-tab-radio { position:absolute; opacity:0; pointer-events:none; }
+  .mp-tabbar { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:20px; }
+  .mp-tabbar label { display:inline-flex; align-items:center; padding:11px 20px; background:var(--card-mint); color:var(--brand-dark); font-weight:bold; font-size:0.92rem; border-radius:var(--radius-pill); cursor:pointer; transition:background 0.15s, color 0.15s; margin:0; }
+  .mp-tabbar label:hover { background:#cde6c9; }
+  .mp-panel { display:none; }
+  <?php foreach ($tabs as $i => $tab): ?>
+  #mp-tab-<?= $i ?>:checked ~ .mp-tabbar label[for="mp-tab-<?= $i ?>"] { background:var(--brand); color:#fff; }
+  #mp-tab-<?= $i ?>:checked ~ .mp-panels #mp-panel-<?= $i ?> { display:block; }
+  <?php endforeach; ?>
+
+  @media (max-width: 600px) {
+    .mp-tabbar { gap:6px; }
+    .mp-tabbar label { padding:9px 14px; font-size:0.85rem; }
+  }
 </style>
+
 <div class="top-bar">
   <span>ようこそ、<?= h($family['name']) ?>様</span>
   <a href="/mypage_logout.php"><?= Layout::icon('logout') ?> ログアウト</a>
 </div>
 
+<div class="mp-shell">
+
 <?php if (!empty($errors)): ?>
   <div class="card"><div class="errors"><?php foreach ($errors as $e): ?><div><?= h($e) ?></div><?php endforeach; ?></div></div>
 <?php endif; ?>
-<?php if ($saved): ?>
-  <div class="card"><div class="notice">登録情報を更新しました。</div></div>
-<?php endif; ?>
-<?php if ($themeSaved): ?>
-  <div class="card"><div class="notice">テーマを設定しました。</div></div>
-<?php endif; ?>
 
-<?php foreach ($panels as $panel): ?>
-  <?php $u = $panel['user']; $sub = $panel['subscription']; ?>
+<?php foreach ($tabs as $i => $tab): ?>
+  <input type="radio" name="mp-view" id="mp-tab-<?= $i ?>" class="mp-tab-radio" <?= $tab['key'] === $activeTab ? 'checked' : '' ?>>
+<?php endforeach; ?>
+
+<div class="mp-tabbar">
+  <?php foreach ($tabs as $i => $tab): ?>
+    <label for="mp-tab-<?= $i ?>"><?= h($tab['label']) ?></label>
+  <?php endforeach; ?>
+</div>
+
+<div class="mp-panels">
+  <div class="mp-panel" id="mp-panel-0">
+    <?php renderFamilyPanel($family, $savedFamily); ?>
+  </div>
+
+  <?php foreach ($panels as $i => $panel): ?>
+    <div class="mp-panel" id="mp-panel-<?= $i + 1 ?>">
+      <?php renderUserPanel($panel, $family, $savedUserId, $themeSavedUserId); ?>
+    </div>
+  <?php endforeach; ?>
+</div>
+
+</div>
+    <?php
+    Layout::renderFooter();
+}
+
+function renderFamilyPanel(array $family, bool $savedFamily): void
+{
+    ?>
+  <?php if ($savedFamily): ?>
+    <div class="notice">登録情報を更新しました。</div>
+  <?php endif; ?>
+
   <div class="card">
-    <h2><?= Layout::icon('card') ?> <?= h($u['display_name'] ?: 'ご利用者様') ?>様のご契約状況</h2>
+    <h2><?= Layout::icon('edit') ?> お申込者様(ご家族)について</h2>
+    <form method="post" action="/mypage/">
+      <input type="hidden" name="csrf_token" value="<?= h($_SESSION['mypage_csrf_token']) ?>">
+      <input type="hidden" name="action" value="update_family">
+
+      <label for="family_name">お名前</label>
+      <input type="text" id="family_name" name="family_name" value="<?= h($family['name']) ?>" required>
+      <label for="family_email">メールアドレス</label>
+      <input type="email" id="family_email" name="family_email" value="<?= h((string) $family['email']) ?>">
+      <label for="family_phone">電話番号</label>
+      <input type="tel" id="family_phone" name="family_phone" value="<?= h((string) $family['phone']) ?>">
+
+      <button type="submit">この内容で保存する</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2><?= Layout::icon('card') ?> お支払い</h2>
+    <?php if (!empty($family['stripe_customer_id'])): ?>
+      <p class="empty-hint">ご登録の全利用者様分のお支払い方法・請求書をまとめて管理できます。</p>
+      <a class="mp-btn" href="/mypage_billing.php"><?= Layout::icon('card') ?> お支払い方法・請求書を管理する</a>
+    <?php else: ?>
+      <p class="empty-hint">お支払い情報は未登録です。</p>
+    <?php endif; ?>
+  </div>
+
+  <div class="card" style="text-align:center;">
+    <a class="mp-btn" href="/mypage_add_user.php"><?= Layout::icon('heart') ?> 利用者を追加する</a>
+    <p class="empty-hint" style="margin-top:10px;">もうお一方のご利用者様を、同じご家族アカウントに追加できます。</p>
+  </div>
+    <?php
+}
+
+function renderUserPanel(array $panel, array $family, int $savedUserId, int $themeSavedUserId): void
+{
+    $u = $panel['user'];
+    $sub = $panel['subscription'];
+    $userId = (int) $u['id'];
+    $riskPlan = in_array($sub['plan_code'] ?? null, RISK_REPORT_PLAN_CODES, true);
+    ?>
+  <?php if ($savedUserId === $userId): ?>
+    <div class="notice">登録情報を更新しました。</div>
+  <?php endif; ?>
+  <?php if ($themeSavedUserId === $userId): ?>
+    <div class="notice">テーマを設定しました。</div>
+  <?php endif; ?>
+
+  <div class="card">
+    <h2><?= Layout::icon('card') ?> ご契約状況</h2>
     <?php if ($sub !== null): ?>
       <dl class="status-box">
         <dt>プラン</dt>
@@ -308,11 +434,6 @@ function renderMypage(array $family, array $panels, array $errors, bool $saved, 
           <dd><?= h((new DateTime($sub['current_period_end']))->format('Y年n月j日')) ?></dd>
         <?php endif; ?>
       </dl>
-      <?php if (!empty($family['stripe_customer_id'])): ?>
-        <a class="button-billing" href="/mypage_billing.php"><?= Layout::icon('card') ?> お支払い方法・請求書を管理する</a>
-      <?php else: ?>
-        <p class="empty-hint">お支払い情報は未登録です。</p>
-      <?php endif; ?>
     <?php else: ?>
       <p class="empty-hint">ご契約情報が見つかりませんでした。</p>
     <?php endif; ?>
@@ -320,7 +441,7 @@ function renderMypage(array $family, array $panels, array $errors, bool $saved, 
 
   <div class="card">
     <h2><?= Layout::icon('shield') ?> 安心レポート</h2>
-    <?php if (in_array($sub['plan_code'] ?? null, RISK_REPORT_PLAN_CODES, true)): ?>
+    <?php if ($riskPlan): ?>
       <?php if (empty($panel['riskEvents'])): ?>
         <p class="empty-hint">これまでに気になる会話は検知されていません。</p>
       <?php else: ?>
@@ -360,7 +481,7 @@ function renderMypage(array $family, array $panels, array $errors, bool $saved, 
 
   <div class="card">
     <h2><?= Layout::icon('heart') ?> 気にかけてほしいテーマ</h2>
-    <?php if (in_array($sub['plan_code'] ?? null, RISK_REPORT_PLAN_CODES, true)): ?>
+    <?php if ($riskPlan): ?>
       <?php if (empty($panel['themes'])): ?>
         <p class="empty-hint">現在設定しているテーマはありません。</p>
       <?php else: ?>
@@ -372,6 +493,7 @@ function renderMypage(array $family, array $panels, array $errors, bool $saved, 
               <input type="hidden" name="csrf_token" value="<?= h($_SESSION['mypage_csrf_token']) ?>">
               <input type="hidden" name="action" value="delete_theme">
               <input type="hidden" name="theme_id" value="<?= (int) $theme['id'] ?>">
+              <input type="hidden" name="theme_user_id" value="<?= $userId ?>">
               <button type="submit" class="theme-delete-btn">削除</button>
             </form>
           </div>
@@ -380,7 +502,7 @@ function renderMypage(array $family, array $panels, array $errors, bool $saved, 
       <form method="post" action="/mypage/" class="theme-add-form">
         <input type="hidden" name="csrf_token" value="<?= h($_SESSION['mypage_csrf_token']) ?>">
         <input type="hidden" name="action" value="add_theme">
-        <input type="hidden" name="theme_user_id" value="<?= (int) $u['id'] ?>">
+        <input type="hidden" name="theme_user_id" value="<?= $userId ?>">
         <input type="text" name="theme_text" placeholder="例: 水分補給を気にかけてほしい" maxlength="255">
         <button type="submit">追加する</button>
       </form>
@@ -393,55 +515,36 @@ function renderMypage(array $family, array $panels, array $errors, bool $saved, 
       <p class="empty-hint">テーマ設定は、寄り添いスタンダード以上でご利用いただけます。</p>
     <?php endif; ?>
   </div>
-<?php endforeach; ?>
 
-<div class="card" style="text-align:center;">
-  <a class="button-billing" href="/mypage_add_user.php"><?= Layout::icon('heart') ?> 利用者を追加する</a>
-  <p class="empty-hint" style="margin-top:8px;">もうお一方のご利用者様を、同じご家族アカウントに追加できます。</p>
-</div>
+  <div class="card">
+    <h2><?= Layout::icon('edit') ?> 登録情報の確認・編集</h2>
+    <form method="post" action="/mypage/">
+      <input type="hidden" name="csrf_token" value="<?= h($_SESSION['mypage_csrf_token']) ?>">
+      <input type="hidden" name="action" value="update_user">
+      <input type="hidden" name="user_id" value="<?= $userId ?>">
 
-<div class="card">
-  <h2><?= Layout::icon('edit') ?> 登録情報の確認・編集</h2>
-  <form method="post" action="/mypage/">
-    <input type="hidden" name="csrf_token" value="<?= h($_SESSION['mypage_csrf_token']) ?>">
-
-    <h3>お申込者様(ご家族)について</h3>
-    <label for="family_name">お名前</label>
-    <input type="text" id="family_name" name="family_name" value="<?= h($family['name']) ?>" required>
-    <label for="family_email">メールアドレス</label>
-    <input type="email" id="family_email" name="family_email" value="<?= h((string) $family['email']) ?>">
-    <label for="family_phone">電話番号</label>
-    <input type="tel" id="family_phone" name="family_phone" value="<?= h((string) $family['phone']) ?>">
-
-    <?php foreach ($panels as $panel): ?>
-      <?php $u = $panel['user']; ?>
-      <div class="user-block">
-        <h3><?= h($u['display_name'] ?: 'ご利用者様') ?>様について</h3>
-        <label for="user_display_name_<?= (int) $u['id'] ?>">お名前・呼び名</label>
-        <input type="text" id="user_display_name_<?= (int) $u['id'] ?>" name="user[<?= (int) $u['id'] ?>][display_name]" value="<?= h((string) $u['display_name']) ?>">
-        <label for="relation_<?= (int) $u['id'] ?>">続柄</label>
-        <input type="text" id="relation_<?= (int) $u['id'] ?>" name="user[<?= (int) $u['id'] ?>][relation]" value="<?= h((string) $u['relation']) ?>">
-        <label for="user_phone_<?= (int) $u['id'] ?>">電話番号</label>
-        <input type="tel" id="user_phone_<?= (int) $u['id'] ?>" name="user[<?= (int) $u['id'] ?>][phone]" value="<?= h((string) $u['phone']) ?>">
-        <label for="user_zip_<?= (int) $u['id'] ?>">郵便番号</label>
-        <input type="text" id="user_zip_<?= (int) $u['id'] ?>" name="user[<?= (int) $u['id'] ?>][zip]" value="<?= h((string) $u['postal_code']) ?>" inputmode="numeric" maxlength="8">
-        <label for="user_address_<?= (int) $u['id'] ?>">ご住所</label>
-        <input type="text" id="user_address_<?= (int) $u['id'] ?>" name="user[<?= (int) $u['id'] ?>][address]" value="<?= h((string) $u['address']) ?>">
-        <label for="user_birthdate_<?= (int) $u['id'] ?>">生年月日</label>
-        <input type="date" id="user_birthdate_<?= (int) $u['id'] ?>" name="user[<?= (int) $u['id'] ?>][birthdate]" value="<?= h((string) $u['birthdate']) ?>">
-        <label>性別</label>
-        <div class="hint">任意です。会話の話し方・言葉選びを合わせる参考にします</div>
-        <div class="radio-group">
-          <label><input type="radio" name="user[<?= (int) $u['id'] ?>][gender]" value="male" <?= $u['gender'] === 'male' ? 'checked' : '' ?>> 男性</label>
-          <label><input type="radio" name="user[<?= (int) $u['id'] ?>][gender]" value="female" <?= $u['gender'] === 'female' ? 'checked' : '' ?>> 女性</label>
-          <label><input type="radio" name="user[<?= (int) $u['id'] ?>][gender]" value="" <?= $u['gender'] === null ? 'checked' : '' ?>> 回答しない</label>
-        </div>
+      <label for="user_display_name_<?= $userId ?>">お名前・呼び名</label>
+      <input type="text" id="user_display_name_<?= $userId ?>" name="display_name" value="<?= h((string) $u['display_name']) ?>">
+      <label for="relation_<?= $userId ?>">続柄</label>
+      <input type="text" id="relation_<?= $userId ?>" name="relation" value="<?= h((string) $u['relation']) ?>">
+      <label for="user_phone_<?= $userId ?>">電話番号</label>
+      <input type="tel" id="user_phone_<?= $userId ?>" name="phone" value="<?= h((string) $u['phone']) ?>">
+      <label for="user_zip_<?= $userId ?>">郵便番号</label>
+      <input type="text" id="user_zip_<?= $userId ?>" name="zip" value="<?= h((string) $u['postal_code']) ?>" inputmode="numeric" maxlength="8">
+      <label for="user_address_<?= $userId ?>">ご住所</label>
+      <input type="text" id="user_address_<?= $userId ?>" name="address" value="<?= h((string) $u['address']) ?>">
+      <label for="user_birthdate_<?= $userId ?>">生年月日</label>
+      <input type="date" id="user_birthdate_<?= $userId ?>" name="birthdate" value="<?= h((string) $u['birthdate']) ?>">
+      <label>性別</label>
+      <div class="hint">任意です。会話の話し方・言葉選びを合わせる参考にします</div>
+      <div class="radio-group">
+        <label><input type="radio" name="gender" value="male" <?= $u['gender'] === 'male' ? 'checked' : '' ?>> 男性</label>
+        <label><input type="radio" name="gender" value="female" <?= $u['gender'] === 'female' ? 'checked' : '' ?>> 女性</label>
+        <label><input type="radio" name="gender" value="" <?= $u['gender'] === null ? 'checked' : '' ?>> 回答しない</label>
       </div>
-    <?php endforeach; ?>
 
-    <button type="submit">この内容で保存する</button>
-  </form>
-</div>
+      <button type="submit">この内容で保存する</button>
+    </form>
+  </div>
     <?php
-    Layout::renderFooter();
 }
