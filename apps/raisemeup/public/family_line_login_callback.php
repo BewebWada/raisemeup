@@ -37,7 +37,6 @@ try {
     $isFriend = $client->isFriend($token['access_token']);
 
     $familyRepo->linkLineUserId((int) $pending['id'], $profile['userId']);
-    $_SESSION['line_friend_flag']['family'] = $isFriend;
 
     // 友だち追加も必須のため、ここで確認できた場合だけ本当の意味で連携完了(friend_confirmed_at)にする。
     // まだ友だち追加していない場合は、後からfamily_webhook.php側のfollowイベントで確認できた時点で

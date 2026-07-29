@@ -22,8 +22,13 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
         renderExpiredNotice();
         return;
     }
-    $userLinked = $user['line_user_id'] !== null;
-    $familyLinked = $family['line_user_id'] !== null;
+    $userLineLinked = $user['line_user_id'] !== null;
+    $familyLineLinked = $family['line_user_id'] !== null;
+    // 「連携完了」はLINEログイン(OAuth)だけでなく友だち追加まで確認できて初めて成立する。
+    // 友だち追加はfollowイベントで非同期に確認されることがあるため、その場限りのセッションフラッシュではなく
+    // DBの永続状態(本人:status、ご家族:friend_confirmed_at)で判定する
+    $userFriendConfirmed = $user['status'] !== 'pending';
+    $familyFriendConfirmed = $family['friend_confirmed_at'] !== null;
 
     $stmt = $pdo->prepare(
         'SELECT s.trial_ends_at, p.name AS plan_name, p.price_yen AS plan_price_yen
@@ -44,27 +49,22 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
         'trial_ends_at' => (new DateTime($subscription['trial_ends_at']))->format('Y年n月j日'),
     ];
 
-    // 直前のLINEログインコールバックが「友だち追加まで完了したか」を1回だけ表示するフラッシュ値
-    $userFriendFlag = $_SESSION['line_friend_flag']['user'] ?? null;
-    $familyFriendFlag = $_SESSION['line_friend_flag']['family'] ?? null;
-    unset($_SESSION['line_friend_flag']);
-
     $baseUrl = rtrim(Config::get('APP_BASE_URL', ''), '/');
 
     $userLoginUrl = null;
-    if (!$userLinked && Config::get('LINE_LOGIN_CHANNEL_ID', '') !== '') {
+    if (!$userLineLinked && Config::get('LINE_LOGIN_CHANNEL_ID', '') !== '') {
         $client = new LineLoginClient(Config::get('LINE_LOGIN_CHANNEL_ID', ''), Config::get('LINE_LOGIN_CHANNEL_SECRET', ''));
         $userLoginUrl = $client->buildAuthorizeUrl($baseUrl . '/line_login_callback.php', $user['invite_code']);
     }
     $familyLoginUrl = null;
-    if (!$familyLinked && Config::get('LINE_FAMILY_LOGIN_CHANNEL_ID', '') !== '') {
+    if (!$familyLineLinked && Config::get('LINE_FAMILY_LOGIN_CHANNEL_ID', '') !== '') {
         $client = new LineLoginClient(Config::get('LINE_FAMILY_LOGIN_CHANNEL_ID', ''), Config::get('LINE_FAMILY_LOGIN_CHANNEL_SECRET', ''));
         $familyLoginUrl = $client->buildAuthorizeUrl($baseUrl . '/family_line_login_callback.php', $family['invite_code']);
     }
 
     $addFriendUrl = Config::get('LINE_ADD_FRIEND_URL', '');
     $familyAddFriendUrl = Config::get('LINE_FAMILY_ADD_FRIEND_URL', '');
-    $allDone = $userLinked && $familyLinked;
+    $allDone = $userFriendConfirmed && $familyFriendConfirmed;
     Layout::renderHeader('apply', $allDone ? 'ご登録が完了しました' : 'お申込みありがとうございます');
     ?>
 <style>
@@ -135,28 +135,32 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
     <?php renderLineStep(
       '① ご本人のLINE連携(必須)',
       Config::get('LINE_BOT_DISPLAY_NAME', 'TAYORI'),
-      $userLinked,
+      $userLineLinked,
+      $userFriendConfirmed,
       $userLoginUrl,
-      $userFriendFlag,
       $addFriendUrl,
       $user['invite_code'] ?? null
     ); ?>
 
-    <?php if ($userLinked): ?>
+    <?php if ($userFriendConfirmed): ?>
       <div class="optional">
-        <p>ご家族様ご自身のLINEでも、無料期間終了のお知らせなどを受け取りたい場合は、以下のステップをどうぞ(任意)。</p>
+        <p>続いて、ご家族様ご自身のLINEでも連携をお願いします。無料期間終了のお知らせなど、お支払いに関するご連絡はこちらのアカウントからお送りします。</p>
         <?php renderLineStep(
-          '② ご家族向け通知の連携(任意)',
+          '② ご家族向け通知の連携(必須)',
           Config::get('LINE_FAMILY_BOT_DISPLAY_NAME', 'TAYORIサポート'),
-          $familyLinked,
+          $familyLineLinked,
+          $familyFriendConfirmed,
           $familyLoginUrl,
-          $familyFriendFlag,
           $familyAddFriendUrl,
           $family['invite_code'] ?? null
         ); ?>
       </div>
     <?php else: ?>
-      <p class="hint">①が完了すると、ご家族向けの登録(任意)が表示されます。</p>
+      <p class="hint">①の友だち追加まで完了すると、ご家族向けの登録(必須)が表示されます。</p>
+    <?php endif; ?>
+
+    <?php if (($userLineLinked && !$userFriendConfirmed) || ($familyLineLinked && !$familyFriendConfirmed)): ?>
+      <script>setTimeout(function () { location.reload(); }, 10000);</script>
     <?php endif; ?>
   <?php endif; ?>
 </div>
@@ -187,26 +191,25 @@ function renderExpiredNotice(): void
 function renderLineStep(
     string $title,
     string $accountName,
-    bool $linked,
+    bool $lineLinked,
+    bool $friendConfirmed,
     ?string $loginUrl,
-    ?bool $friendFlag,
     string $fallbackAddFriendUrl,
     ?string $inviteCode
 ): void {
     ?>
-  <div class="step <?= $linked ? 'done' : '' ?>">
-    <h3><?= h($title) ?><?php if ($linked): ?><span class="badge ok">連携済み</span><?php endif; ?></h3>
-    <?php if ($linked): ?>
-      <?php if ($friendFlag === false): ?>
-        <p class="hint" style="color:#a12a1f;">友だち追加が完了していないようです。トークを受け取るには「<?= h($accountName) ?>」の友だち追加も必要です。</p>
-        <?php if ($fallbackAddFriendUrl !== ''): ?>
-          <a class="button" href="<?= h($fallbackAddFriendUrl) ?>" target="_blank" rel="noopener">
-            <?= Layout::icon('chat') ?> 友だち追加はこちら(別タブで開きます)
-          </a>
-        <?php endif; ?>
-      <?php else: ?>
-        <p class="hint">連携が完了しました。</p>
+  <div class="step <?= $friendConfirmed ? 'done' : '' ?>">
+    <h3><?= h($title) ?><?php if ($friendConfirmed): ?><span class="badge ok">連携済み</span><?php endif; ?></h3>
+    <?php if ($friendConfirmed): ?>
+      <p class="hint">連携が完了しました。</p>
+    <?php elseif ($lineLinked): ?>
+      <p class="hint" style="color:#a12a1f;">友だち追加がまだ完了していません。トークを受け取るには「<?= h($accountName) ?>」の友だち追加が必要です。友だち追加が確認できるまで、次のステップには進めません。</p>
+      <?php if ($fallbackAddFriendUrl !== ''): ?>
+        <a class="button" href="<?= h($fallbackAddFriendUrl) ?>" target="_blank" rel="noopener">
+          <?= Layout::icon('chat') ?> 友だち追加はこちら(別タブで開きます)
+        </a>
       <?php endif; ?>
+      <p class="hint">追加後、自動的にこのページが更新されます(数秒〜数十秒かかる場合があります)。</p>
     <?php elseif ($loginUrl !== null): ?>
       <p class="hint">ボタンをタップし、LINEでログインするだけで連携できます(友だち追加もあわせて確認されます)。</p>
       <a class="button" href="<?= h($loginUrl) ?>"><?= Layout::icon('login') ?> LINEで連携する</a>

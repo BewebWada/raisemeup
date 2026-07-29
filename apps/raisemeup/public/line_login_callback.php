@@ -37,7 +37,6 @@ try {
     $isFriend = $client->isFriend($token['access_token']);
 
     $userRepo->linkLineUserId((int) $pending['id'], $profile['userId']);
-    $_SESSION['line_friend_flag']['user'] = $isFriend;
 
     // 友だち追加も必須のため、ここで確認できた場合だけ本当の意味でオンボード完了(active)にする。
     // 友だち追加だけではLINEのトーク一覧に何も表示されない(ユーザーから話しかけるまで会話が始まらない)ため、
