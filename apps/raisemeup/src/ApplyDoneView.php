@@ -30,6 +30,10 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
     $userFriendConfirmed = $user['status'] !== 'pending';
     $familyFriendConfirmed = $family['friend_confirmed_at'] !== null;
 
+    // 「次へ」ボタン(apply_check_friend.php)で確認できなかった場合に、1回だけ注意文を出すためのフラッシュ値
+    $friendCheckFailed = $_SESSION['friend_check_failed'] ?? null;
+    unset($_SESSION['friend_check_failed']);
+
     $stmt = $pdo->prepare(
         'SELECT s.trial_ends_at, p.name AS plan_name, p.price_yen AS plan_price_yen
          FROM subscriptions s JOIN plans p ON p.id = s.plan_id
@@ -79,9 +83,10 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
   .step .badge.warn { background:#e8a33d; color:#fff; }
   .code-box { background:#eef2ea; border:1px solid #cfdbc4; border-radius:8px; padding:16px; margin:12px 0; text-align:center; }
   .code { font-size:1.8rem; font-weight:bold; letter-spacing:0.15em; color:#4B8B5A; }
-  a.button { display:flex; align-items:center; justify-content:center; gap:10px; text-align:center; margin-top:12px; padding:12px; background:#06c755; color:#fff; text-decoration:none; border-radius:8px; font-weight:bold; }
+  a.button, button.button { display:flex; align-items:center; justify-content:center; gap:10px; width:100%; text-align:center; margin-top:12px; padding:12px; background:#06c755; color:#fff; text-decoration:none; border:none; border-radius:8px; font-weight:bold; font-size:1rem; font-family:inherit; cursor:pointer; }
   a.button .icon { width:1.3em; height:1.3em; }
-  a.button.secondary { background:#4B8B5A; }
+  a.button.secondary, button.button.secondary { background:#4B8B5A; }
+  form { margin:0; }
   .qr-box { text-align:center; margin-top:12px; }
   .qr-box img { width:160px; height:160px; border:1px solid #eee; border-radius:8px; padding:8px; background:#fff; }
   .hint { font-size:0.9rem; color:#777; margin-top:2px; }
@@ -134,12 +139,14 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
 
     <?php renderLineStep(
       '① ご本人のLINE連携(必須)',
+      'user',
       Config::get('LINE_BOT_DISPLAY_NAME', 'TAYORI'),
       $userLineLinked,
       $userFriendConfirmed,
       $userLoginUrl,
       $addFriendUrl,
-      $user['invite_code'] ?? null
+      $user['invite_code'] ?? null,
+      $friendCheckFailed === 'user'
     ); ?>
 
     <?php if ($userFriendConfirmed): ?>
@@ -147,20 +154,18 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
         <p>続いて、ご家族様ご自身のLINEでも連携をお願いします。無料期間終了のお知らせなど、お支払いに関するご連絡はこちらのアカウントからお送りします。</p>
         <?php renderLineStep(
           '② ご家族向け通知の連携(必須)',
+          'family',
           Config::get('LINE_FAMILY_BOT_DISPLAY_NAME', 'TAYORIサポート'),
           $familyLineLinked,
           $familyFriendConfirmed,
           $familyLoginUrl,
           $familyAddFriendUrl,
-          $family['invite_code'] ?? null
+          $family['invite_code'] ?? null,
+          $friendCheckFailed === 'family'
         ); ?>
       </div>
     <?php else: ?>
       <p class="hint">①の友だち追加まで完了すると、ご家族向けの登録(必須)が表示されます。</p>
-    <?php endif; ?>
-
-    <?php if (($userLineLinked && !$userFriendConfirmed) || ($familyLineLinked && !$familyFriendConfirmed)): ?>
-      <script>setTimeout(function () { location.reload(); }, 10000);</script>
     <?php endif; ?>
   <?php endif; ?>
 </div>
@@ -190,12 +195,14 @@ function renderExpiredNotice(): void
 // 従来方式のみを表示する
 function renderLineStep(
     string $title,
+    string $target,
     string $accountName,
     bool $lineLinked,
     bool $friendConfirmed,
     ?string $loginUrl,
     string $fallbackAddFriendUrl,
-    ?string $inviteCode
+    ?string $inviteCode,
+    bool $checkFailed = false
 ): void {
     ?>
   <div class="step <?= $friendConfirmed ? 'done' : '' ?>">
@@ -203,13 +210,20 @@ function renderLineStep(
     <?php if ($friendConfirmed): ?>
       <p class="hint">連携が完了しました。</p>
     <?php elseif ($lineLinked): ?>
-      <p class="hint" style="color:#a12a1f;">友だち追加がまだ完了していません。トークを受け取るには「<?= h($accountName) ?>」の友だち追加が必要です。友だち追加が確認できるまで、次のステップには進めません。</p>
+      <?php if ($checkFailed): ?>
+        <p class="hint" style="color:#a12a1f;">「<?= h($accountName) ?>」の友だち追加がまだ確認できませんでした。友だち追加を済ませてから、もう一度お試しください。</p>
+      <?php else: ?>
+        <p class="hint" style="color:#a12a1f;">友だち追加がまだ完了していません。トークを受け取るには「<?= h($accountName) ?>」の友だち追加が必要です。友だち追加が確認できるまで、次のステップには進めません。</p>
+      <?php endif; ?>
       <?php if ($fallbackAddFriendUrl !== ''): ?>
         <a class="button" href="<?= h($fallbackAddFriendUrl) ?>" target="_blank" rel="noopener">
           <?= Layout::icon('chat') ?> 友だち追加はこちら(別タブで開きます)
         </a>
       <?php endif; ?>
-      <p class="hint">追加後、自動的にこのページが更新されます(数秒〜数十秒かかる場合があります)。</p>
+      <form method="post" action="/apply_check_friend.php">
+        <input type="hidden" name="target" value="<?= h($target) ?>">
+        <button type="submit" class="button secondary">友だち追加を確認して次へ</button>
+      </form>
     <?php elseif ($loginUrl !== null): ?>
       <p class="hint">ボタンをタップし、LINEでログインするだけで連携できます(友だち追加もあわせて確認されます)。</p>
       <a class="button" href="<?= h($loginUrl) ?>"><?= Layout::icon('login') ?> LINEで連携する</a>

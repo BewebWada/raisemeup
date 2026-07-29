@@ -3,6 +3,7 @@ require_once __DIR__ . '/Config.php';
 require_once __DIR__ . '/LineClient.php';
 require_once __DIR__ . '/ClaudeClient.php';
 require_once __DIR__ . '/UserRepository.php';
+require_once __DIR__ . '/FriendConfirmationService.php';
 require_once __DIR__ . '/PersonRepository.php';
 require_once __DIR__ . '/ScheduleRepository.php';
 require_once __DIR__ . '/MedicationLogRepository.php';
@@ -310,15 +311,7 @@ class ConversationHandler
             return;
         }
 
-        $this->userRepo->markOnboarded((int) $user['id']);
-        $displayName = $user['display_name'] ?: 'あなた';
-        $companionName = $user['companion_name'] ?: 'たより';
-        $greeting = "{$displayName}さん、はじめまして!{$companionName}です。\nこれから、よろしくお願いします。\n何でも気軽に話しかけてくださいね。";
-        if ($this->lineClient->push($lineUserId, $greeting)) {
-            $this->pdo->prepare(
-                'INSERT INTO conversations (user_id, direction, message_type, content) VALUES (?, "outbound", "text", ?)'
-            )->execute([(int) $user['id'], $greeting]);
-        }
+        FriendConfirmationService::confirmUser($this->pdo, $this->userRepo, $this->lineClient, $user);
     }
 
     // 住所からJMA予報区を判定し、天気・警報注意報の要約を取得する。住所未登録・判定不可・API失敗時は

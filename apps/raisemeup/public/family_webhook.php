@@ -10,6 +10,7 @@ require_once __DIR__ . '/../src/FamilyAccountRepository.php';
 require_once __DIR__ . '/../src/FamilyMessageRepository.php';
 require_once __DIR__ . '/../src/FamilyThemeRepository.php';
 require_once __DIR__ . '/../src/SubscriptionRepository.php';
+require_once __DIR__ . '/../src/FriendConfirmationService.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Database.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
 
@@ -84,12 +85,7 @@ function handleFamilyFollowEvent(FamilyAccountRepository $familyRepo, LineClient
         return;
     }
 
-    $familyRepo->markFriendConfirmed((int) $family['id']);
-    $familyName = $family['name'] ?: 'ご家族';
-    $lineClient->push(
-        $lineUserId,
-        "{$familyName}様、登録が完了しました。\n無料期間の終了案内など、お支払いに関するご連絡をこちらのアカウントからお送りします。"
-    );
+    FriendConfirmationService::confirmFamily($familyRepo, $lineClient, $family);
 }
 
 function handleFamilyMessage(

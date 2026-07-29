@@ -84,6 +84,37 @@ class LineClient
         }
     }
 
+    // 友だち追加済みかどうかをその場で能動的に確認するために使う(200なら友だち、404なら未追加/ブロック済み)。
+    // OAuthのアクセストークンとは違い、チャネルアクセストークンだけで呼べるので有効期限切れの心配がない
+    public function getProfile(string $userId): ?array
+    {
+        $ch = curl_init('https://api.line.me/v2/bot/profile/' . urlencode($userId));
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $this->accessToken],
+        ]);
+        $response = curl_exec($ch);
+        $curlError = curl_error($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($response === false) {
+            error_log("LINE getProfile failed: curl error - {$curlError}");
+            return null;
+        }
+        if ($httpCode === 404) {
+            return null;
+        }
+        if ($httpCode !== 200) {
+            error_log("LINE getProfile failed: HTTP {$httpCode} - {$response}");
+            return null;
+        }
+        $decoded = json_decode($response, true);
+        return is_array($decoded) ? $decoded : null;
+    }
+
     // replyTokenを持たない場面(バッチ処理からの通知等)で、こちらから能動的にメッセージを送る場合に使う。
     // $quickReplyItemsを渡すと、メッセージ下にボタンを表示できる(例: 位置情報を1タップで送れるボタン)
     public function push(string $toLineUserId, string $text, ?array $quickReplyItems = null): bool
