@@ -244,11 +244,18 @@ function renderUserOnlyDone(array $user, bool $friendConfirmed, string $addFrien
   .qr-box { text-align:center; margin-top:16px; }
   .qr-box img { width:180px; height:180px; border:1px solid #eee; border-radius:8px; padding:8px; background:#fff; }
   .hint { font-size:0.95rem; color:#777; margin-top:16px; }
+  .steps { list-style:none; margin:22px 0 0; padding:0; text-align:left; }
+  .steps li { display:flex; align-items:flex-start; gap:14px; font-size:1rem; line-height:1.6; margin-bottom:16px; }
+  .steps li:last-child { margin-bottom:0; }
+  .step-num { flex-shrink:0; display:flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:50%; background:#eef2ea; color:#4B8B5A; font-weight:bold; font-size:0.95rem; }
+  .callout { margin-top:24px; padding:18px 20px; background:#eef2ea; border:1px solid #cfdbc4; border-radius:12px; font-size:1.05rem; line-height:1.8; text-align:left; }
+  .callout strong { color:#1E4729; }
 </style>
 <div class="card">
   <?php if ($friendConfirmed): ?>
     <h1><span class="done-icon">✓</span> 連携が完了しました</h1>
-    <p>もうすぐ<strong><?= h($companionName) ?></strong>からLINEにメッセージが届きます。<br>届いたら、気軽に話しかけてみてください。</p>
+    <p>もうすぐ<strong><?= h($companionName) ?></strong>からLINEにメッセージが届きます。</p>
+    <div class="callout">LINEの画面に戻り、<strong>「トーク」の一覧</strong>から「<?= h($accountName) ?>」を開いてみてください。<br>メッセージが届いていたら、気軽に返事をしてみてください。</div>
   <?php else: ?>
     <h1>もう少しで完了です</h1>
     <?php if ($lineError === 'user_duplicate'): ?>
@@ -259,11 +266,16 @@ function renderUserOnlyDone(array $user, bool $friendConfirmed, string $addFrien
     <p>下のボタンから「<?= h($accountName) ?>」を<br>友だち追加してください。</p>
     <?php if ($addFriendUrl !== ''): ?>
       <a class="button" href="<?= h($addFriendUrl) ?>"><?= Layout::icon('chat') ?> 友だち追加する</a>
+      <ol class="steps">
+        <li><span class="step-num">1</span><span>上のボタンをタップすると、LINEアプリが開きます</span></li>
+        <li><span class="step-num">2</span><span>「<?= h($accountName) ?>」の画面が出たら、<strong>「追加」ボタン</strong>をタップしてください</span></li>
+        <li><span class="step-num">3</span><span>LINEの画面に戻り、<strong>「トーク」の一覧</strong>から「<?= h($accountName) ?>」を開いてください</span></li>
+      </ol>
       <div class="qr-box">
         <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=<?= urlencode($addFriendUrl) ?>" alt="友だち追加QRコード" width="180" height="180">
       </div>
+      <div class="callout">友だち追加ができたら、<strong>LINEの「トーク」</strong>を開いてみてください。<br>もう「<?= h($companionName) ?>」からメッセージが届いています。</div>
     <?php endif; ?>
-    <p class="hint">友だち追加が済むと、自動的に<?= h($companionName) ?>からメッセージが届きます。</p>
   <?php endif; ?>
 </div>
     <?php
