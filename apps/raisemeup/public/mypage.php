@@ -318,17 +318,23 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
 
   /* --- タブ(ラジオボタンのみで開閉するCSSタブ、JS不要) --- */
   .mp-tab-radio { position:absolute; opacity:0; pointer-events:none; }
-  .mp-tabbar { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:20px; }
-  .mp-tabbar label { display:inline-flex; align-items:center; padding:11px 20px; background:var(--card-mint); color:var(--brand-dark); font-weight:bold; font-size:0.92rem; border-radius:var(--radius-pill); cursor:pointer; transition:background 0.15s, color 0.15s; margin:0; }
-  .mp-tabbar label:hover { background:#cde6c9; }
+  .mp-tabbar { display:flex; flex-wrap:wrap; border-bottom:2px solid #e3ddc9; margin-bottom:20px; }
+  .mp-tabbar label {
+    display:inline-flex; align-items:center; margin:0 4px -2px 0; padding:12px 20px;
+    background:transparent; color:var(--text-muted); font-weight:bold; font-size:0.92rem;
+    border-radius:10px 10px 0 0; border-bottom:3px solid transparent;
+    cursor:pointer; transition:background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .mp-tabbar label:hover { background:var(--card-mint); color:var(--brand-dark); }
   .mp-panel { display:none; }
   <?php foreach ($tabs as $i => $tab): ?>
-  #mp-tab-<?= $i ?>:checked ~ .mp-tabbar label[for="mp-tab-<?= $i ?>"] { background:var(--brand); color:#fff; }
+  #mp-tab-<?= $i ?>:checked ~ .mp-tabbar label[for="mp-tab-<?= $i ?>"] {
+    background:var(--card-mint); color:var(--brand-dark); border-bottom-color:var(--brand);
+  }
   #mp-tab-<?= $i ?>:checked ~ .mp-panels #mp-panel-<?= $i ?> { display:block; }
   <?php endforeach; ?>
 
   @media (max-width: 600px) {
-    .mp-tabbar { gap:6px; }
     .mp-tabbar label { padding:9px 14px; font-size:0.85rem; }
   }
 </style>
