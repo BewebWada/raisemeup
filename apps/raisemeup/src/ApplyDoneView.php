@@ -129,8 +129,6 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
       <p style="color:#a12a1f;">お支払い情報の登録が完了していません。無料期間中はそのままご利用いただけますが、期間終了までにお支払い情報のご登録が必要です。折り返しご案内いたします。</p>
     <?php endif; ?>
 
-    <p>話し相手の名前は<strong><?= h($r['companion_name']) ?></strong>に決まりました。</p>
-
     <?php if ($lineError === 'user_duplicate'): ?>
       <div class="errors">このLINEアカウントは、既に別の利用者様として登録済みです。ご本人様ご自身のLINEアカウントで連携してください。</div>
     <?php elseif ($lineError !== ''): ?>
