@@ -224,6 +224,52 @@ function renderExpiredNotice(): void
     Layout::renderFooter();
 }
 
+// ご利用者様ご本人の端末で、LINEログイン直後にそのまま表示する専用画面。
+// この画面を見るのは高齢の利用者様ご本人なので、料金・プラン・ご家族の連携状況といった
+// 本人には関係のない情報は一切出さず、「友だち追加」だけに集中させたシンプルな案内にする。
+function renderUserOnlyDone(array $user, bool $friendConfirmed, string $addFriendUrl, string $lineError = ''): void
+{
+    $companionName = $user['companion_name'] ?: 'たより';
+    $accountName = Config::get('LINE_BOT_DISPLAY_NAME', 'TAYORI');
+    Layout::renderHeader('apply', $friendConfirmed ? '連携が完了しました' : 'もう少しで完了です');
+    ?>
+<style>
+  .card { max-width: 480px; margin: 0 auto; background:#fff; border-radius:12px; padding:32px 26px; box-shadow:0 2px 8px rgba(0,0,0,0.06); text-align:center; }
+  .card h1 { font-size:1.4rem; margin-top:0; }
+  .card p { font-size:1.05rem; line-height:1.8; color:#3D3A35; }
+  .errors { background:#fdecea; border:1px solid #f5b0a8; color:#a12a1f; padding:14px 16px; border-radius:8px; margin-bottom:16px; text-align:left; font-size:1rem; }
+  .done-icon { color:#4B8B5A; }
+  a.button { display:flex; align-items:center; justify-content:center; gap:10px; margin:20px 0; padding:18px; background:#06c755; color:#fff; text-decoration:none; border-radius:10px; font-weight:bold; font-size:1.15rem; }
+  a.button .icon { width:1.4em; height:1.4em; }
+  .qr-box { text-align:center; margin-top:16px; }
+  .qr-box img { width:180px; height:180px; border:1px solid #eee; border-radius:8px; padding:8px; background:#fff; }
+  .hint { font-size:0.95rem; color:#777; margin-top:16px; }
+</style>
+<div class="card">
+  <?php if ($friendConfirmed): ?>
+    <h1><span class="done-icon">✓</span> 連携が完了しました</h1>
+    <p>もうすぐ<strong><?= h($companionName) ?></strong>からLINEにメッセージが届きます。<br>届いたら、気軽に話しかけてみてください。</p>
+  <?php else: ?>
+    <h1>もう少しで完了です</h1>
+    <?php if ($lineError === 'user_duplicate'): ?>
+      <div class="errors">このLINEアカウントは、既に別の方としてご登録済みです。ご案内をもう一度ご確認ください。</div>
+    <?php elseif ($lineError !== ''): ?>
+      <div class="errors">うまく登録できませんでした。もう一度お試しください。</div>
+    <?php endif; ?>
+    <p>下のボタンから「<?= h($accountName) ?>」を<br>友だち追加してください。</p>
+    <?php if ($addFriendUrl !== ''): ?>
+      <a class="button" href="<?= h($addFriendUrl) ?>"><?= Layout::icon('chat') ?> 友だち追加する</a>
+      <div class="qr-box">
+        <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=<?= urlencode($addFriendUrl) ?>" alt="友だち追加QRコード" width="180" height="180">
+      </div>
+    <?php endif; ?>
+    <p class="hint">友だち追加が済むと、自動的に<?= h($companionName) ?>からメッセージが届きます。</p>
+  <?php endif; ?>
+</div>
+    <?php
+    Layout::renderFooter();
+}
+
 // LINEログイン方式(コード不要)・従来のQR+コード方式(フォールバック)のどちらかで
 // 1ステップ分の連携UIを描画する。loginUrlがnull(LINEログインチャネル未設定)の場合は
 // 従来方式のみを表示する
