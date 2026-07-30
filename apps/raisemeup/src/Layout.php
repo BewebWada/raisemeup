@@ -43,6 +43,7 @@ class Layout
         'check' => '<path d="M5 12.5l4.5 4.5L19 7"/>',
         'minus' => '<path d="M5 12h14"/>',
         'heart' => '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
+        'copy' => '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
     ];
 
     public static function icon(string $name, string $class = ''): string

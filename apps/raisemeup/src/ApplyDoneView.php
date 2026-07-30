@@ -98,6 +98,12 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
   .summary-box dt:first-child { margin-top:0; }
   .summary-box dd { margin:2px 0 0; font-weight:bold; }
   .done-icon { color:#4B8B5A; }
+  .copy-box { display:flex; gap:8px; margin:12px 0; flex-wrap:wrap; }
+  .copy-box input.copy-input { flex:1 1 200px; min-width:0; padding:10px; font-size:0.82rem; border:1px solid #ccc; border-radius:6px; background:#f7f5f0; color:#555; }
+  .copy-box button.copy-btn { width:auto; flex:0 0 auto; margin-top:0; padding:10px 16px; }
+  .handoff-guide { list-style:none; margin:16px 0 0; padding:0; display:flex; flex-direction:column; gap:10px; }
+  .handoff-guide li { display:flex; align-items:center; gap:10px; font-size:0.9rem; }
+  .guide-icon { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:50%; background:#eef2ea; color:#4B8B5A; flex-shrink:0; }
 </style>
 <div class="card">
   <?php if ($allDone): ?>
@@ -137,40 +143,68 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
       <div class="errors">LINEとの連携がうまくいきませんでした。お手数ですが、もう一度お試しください。</div>
     <?php endif; ?>
 
-    <p><strong><?= h($r['user_display_name']) ?></strong>様ご本人のスマートフォンで、以下のステップに沿ってLINE連携をお願いします。</p>
+    <p>まず<strong>ご家族様ご自身</strong>のスマートフォンで①のLINE連携をお願いします。続けて②で、<strong><?= h($r['user_display_name']) ?></strong>様(ご利用者様ご本人)へ連携用のURLをお送りいただきます。</p>
 
     <?php renderLineStep(
-      '① ご本人のLINE連携(必須)',
-      'user',
-      Config::get('LINE_BOT_DISPLAY_NAME', 'TAYORI'),
-      $userLineLinked,
-      $userFriendConfirmed,
-      $userLoginUrl,
-      $addFriendUrl,
-      $user['invite_code'] ?? null,
-      $friendCheckFailed === 'user'
+      '① ご家族向け通知の連携(必須)',
+      'family',
+      Config::get('LINE_FAMILY_BOT_DISPLAY_NAME', 'TAYORIサポート'),
+      $familyLineLinked,
+      $familyFriendConfirmed,
+      $familyLoginUrl,
+      $familyAddFriendUrl,
+      $family['invite_code'] ?? null,
+      $friendCheckFailed === 'family'
     ); ?>
+    <?php if (!$familyFriendConfirmed): ?>
+      <p class="hint">無料期間終了のお知らせなど大切なご連絡をお送りするため、こちらが完了していないとお申込みが自動的にキャンセルとなりますのでご注意ください。</p>
+    <?php endif; ?>
 
-    <?php if ($userFriendConfirmed): ?>
+    <?php if ($familyFriendConfirmed): ?>
       <div class="optional">
-        <p>続けて、ご家族様ご自身のLINE連携をお願いします(必須)。無料期間終了のお知らせなど大切なご連絡をお送りするため、こちらが完了していないとお申込みが自動的にキャンセルとなりますのでご注意ください。</p>
-        <?php renderLineStep(
-          '② ご家族向け通知の連携(必須)',
-          'family',
-          Config::get('LINE_FAMILY_BOT_DISPLAY_NAME', 'TAYORIサポート'),
-          $familyLineLinked,
-          $familyFriendConfirmed,
-          $familyLoginUrl,
-          $familyAddFriendUrl,
-          $family['invite_code'] ?? null,
-          $friendCheckFailed === 'family'
+        <p>続けて、<strong><?= h($r['user_display_name']) ?></strong>様(ご利用者様ご本人)のLINE連携をお願いします(必須)。下記のURLをコピーして、ご本人のスマートフォンにお送りください。</p>
+        <?php renderUserHandoffStep(
+          '② ご利用者様のLINE連携(必須)',
+          Config::get('LINE_BOT_DISPLAY_NAME', 'TAYORI'),
+          $userFriendConfirmed,
+          $userLineLinked,
+          $userLoginUrl,
+          $addFriendUrl,
+          $user['invite_code'] ?? null,
+          $friendCheckFailed === 'user'
         ); ?>
       </div>
     <?php else: ?>
-      <p class="hint">①の友だち追加まで完了すると、ご家族向けの登録(必須)が表示されます。</p>
+      <p class="hint">①の連携が完了すると、ご利用者様のLINE連携方法(必須)が表示されます。</p>
     <?php endif; ?>
   <?php endif; ?>
 </div>
+<script>
+(function () {
+  document.querySelectorAll('.copy-btn').forEach(function (btn) {
+    var defaultLabel = btn.textContent;
+    btn.addEventListener('click', function () {
+      var input = document.getElementById(btn.getAttribute('data-copy-target'));
+      if (!input) { return; }
+      var markCopied = function () {
+        btn.textContent = 'コピーしました';
+        setTimeout(function () { btn.textContent = defaultLabel; }, 2000);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(input.value).then(markCopied).catch(function () {
+          input.select();
+          document.execCommand('copy');
+          markCopied();
+        });
+      } else {
+        input.select();
+        document.execCommand('copy');
+        markCopied();
+      }
+    });
+  });
+})();
+</script>
     <?php
     Layout::renderFooter();
 }
@@ -245,6 +279,72 @@ function renderLineStep(
         <a class="button" href="<?= h($fallbackAddFriendUrl) ?>" target="_blank" rel="noopener">
           <?= Layout::icon('chat') ?> 友だち追加はこちら(別タブで開きます)
         </a>
+        <div class="qr-box">
+          <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=<?= urlencode($fallbackAddFriendUrl) ?>" alt="友だち追加QRコード" width="160" height="160">
+        </div>
+      <?php endif; ?>
+      <?php if ($inviteCode !== null): ?>
+        <div class="code-box"><div class="code"><?= h($inviteCode) ?></div></div>
+      <?php endif; ?>
+    <?php endif; ?>
+  </div>
+    <?php
+}
+
+// ご利用者様(ご本人)向けのステップ。この画面を操作しているのはご家族の端末である前提のため、
+// その場でボタンを押させる方式(renderLineStepのLINEログインURL方式)ではなく、URLをコピーして
+// ご本人の端末に送ってもらう方式にしている。友だち追加未確認時の「次へ」導線・従来のQR+コード
+// フォールバックはrenderLineStepと共通の考え方を踏襲する
+function renderUserHandoffStep(
+    string $title,
+    string $accountName,
+    bool $friendConfirmed,
+    bool $lineLinked,
+    ?string $loginUrl,
+    string $fallbackAddFriendUrl,
+    ?string $inviteCode,
+    bool $checkFailed = false
+): void {
+    ?>
+  <div class="step <?= $friendConfirmed ? 'done' : '' ?>">
+    <h3><?= h($title) ?><?php if ($friendConfirmed): ?><span class="badge ok">連携済み</span><?php endif; ?></h3>
+    <?php if ($friendConfirmed): ?>
+      <p class="hint">連携が完了しました。</p>
+    <?php elseif ($lineLinked): ?>
+      <?php if ($checkFailed): ?>
+        <p class="hint" style="color:#a12a1f;">「<?= h($accountName) ?>」の友だち追加がまだ確認できませんでした。ご本人に友だち追加を済ませていただいてから、もう一度お試しください。</p>
+      <?php else: ?>
+        <p class="hint" style="color:#a12a1f;">友だち追加がまだ完了していません。トークを受け取るには「<?= h($accountName) ?>」の友だち追加が必要です。</p>
+      <?php endif; ?>
+      <form method="post" action="/apply_check_friend.php">
+        <input type="hidden" name="target" value="user">
+        <button type="submit" class="button secondary">友だち追加を確認して次へ</button>
+      </form>
+    <?php elseif ($loginUrl !== null): ?>
+      <p class="hint">下のURLをコピーして、ご本人のスマートフォンに送ってください。ご本人がそのURLを開いてLINEでログインするだけで、友だち追加まであわせて完了します。</p>
+      <div class="copy-box">
+        <input type="text" class="copy-input" id="userHandoffUrl" value="<?= h($loginUrl) ?>" readonly onclick="this.select()">
+        <button type="button" class="button copy-btn" data-copy-target="userHandoffUrl"><?= Layout::icon('copy') ?> URLをコピーする</button>
+      </div>
+      <ol class="handoff-guide">
+        <li><span class="guide-icon"><?= Layout::icon('copy') ?></span><span>上のボタンでURLをコピーする</span></li>
+        <li><span class="guide-icon"><?= Layout::icon('chat') ?></span><span>LINEやSMSで、ご本人のスマートフォンに送る</span></li>
+        <li><span class="guide-icon"><?= Layout::icon('login') ?></span><span>ご本人がそのURLを開き、LINEでログインする</span></li>
+        <li><span class="guide-icon"><?= Layout::icon('check') ?></span><span>友だち追加まで自動で確認されます</span></li>
+      </ol>
+      <?php if ($fallbackAddFriendUrl !== '' && $inviteCode !== null): ?>
+        <details class="fallback">
+          <summary>URLが開けない場合はこちら</summary>
+          <div class="qr-box">
+            <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=<?= urlencode($fallbackAddFriendUrl) ?>" alt="友だち追加QRコード" width="160" height="160">
+          </div>
+          <p class="hint">上記QRから「<?= h($accountName) ?>」を友だち追加のうえ、最初のメッセージとして下記のコードをそのまま送信してください。</p>
+          <div class="code-box"><div class="code"><?= h($inviteCode) ?></div></div>
+        </details>
+      <?php endif; ?>
+    <?php else: ?>
+      <p class="hint">LINEで「<?= h($accountName) ?>」公式アカウントを友だち追加し、最初のメッセージとして下記のコードをそのまま送信してください。</p>
+      <?php if ($fallbackAddFriendUrl !== ''): ?>
         <div class="qr-box">
           <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=<?= urlencode($fallbackAddFriendUrl) ?>" alt="友だち追加QRコード" width="160" height="160">
         </div>

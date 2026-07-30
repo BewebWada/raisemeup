@@ -265,7 +265,8 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
 </style>
 <div class="card">
   <h1>TAYORI ご利用申込</h1>
-  <p>ご家族が代わってお申込みください。お申込み後、<?= TRIAL_DAYS ?>日間無料でお試しいただけます。</p>
+  <p>ご家族様が代わってお申込みください。お申込み後、<?= TRIAL_DAYS ?>日間無料でお試しいただけます。</p>
+  <div class="notice"><strong>本お申込みは、ご家族様ご自身のスマートフォンまたはパソコンで行ってください。</strong>お申込み後、まずご家族様ご自身の端末でLINE連携を行っていただき、続けてご利用者様(ご本人)へ連携用のURLをお送りいただく流れになります。</div>
 
   <?php if ($duplicateFamily !== null): ?>
     <?php $resumable = (int) ($_SESSION['apply_result']['family_id'] ?? 0) === (int) $duplicateFamily['id']; ?>
