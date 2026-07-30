@@ -37,7 +37,18 @@ try {
     $profile = $client->getProfile($token['access_token']);
     $isFriend = $client->isFriend($token['access_token']);
 
-    $userRepo->linkLineUserId((int) $pending['id'], $profile['userId']);
+    try {
+        $userRepo->linkLineUserId((int) $pending['id'], $profile['userId']);
+    } catch (PDOException $e) {
+        // users.line_user_idはUNIQUE制約付き。同じLINEアカウントで既に別の利用者様が連携済みの場合
+        // (例: ご家族が2人目の利用者様を、1人目と同じご自身のLINEアカウントで連携しようとした場合)
+        // ここで一意制約違反になるので、原因が分かるようエラー種別を分けて案内する
+        if ((int) $e->errorInfo[1] === 1062) {
+            header('Location: /apply/?done=1&line_error=user_duplicate');
+            exit;
+        }
+        throw $e;
+    }
 
     // 友だち追加も必須のため、ここで確認できた場合だけ本当の意味でオンボード完了(active)にする。
     // まだ友だち追加していない場合は、申込完了画面の「次へ」ボタン(能動チェック)か、

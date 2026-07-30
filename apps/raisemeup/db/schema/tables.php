@@ -5,6 +5,7 @@ return [
         line_user_id        VARCHAR(64) DEFAULT NULL UNIQUE COMMENT 'LINEのuserId(LINE連携前はNULL)',
         invite_code         VARCHAR(12) DEFAULT NULL UNIQUE COMMENT 'Web申込時に発行する、本人のLINE連携用の使い切りコード',
         display_name        VARCHAR(100) DEFAULT NULL COMMENT '本人の呼び名(会話上で使用)',
+        full_name           VARCHAR(100) DEFAULT NULL COMMENT '氏名(管理用表示・ご家族とのやり取りで使用。会話上の呼び名とは別)',
         phone               VARCHAR(20) DEFAULT NULL,
         postal_code         VARCHAR(8) DEFAULT NULL,
         address             VARCHAR(255) DEFAULT NULL,
