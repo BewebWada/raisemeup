@@ -197,6 +197,11 @@ $talkCountStmt = $pdo->prepare(
     "SELECT COUNT(*) FROM conversations WHERE user_id = ? AND direction = 'inbound' AND DATE(created_at) = CURDATE()"
 );
 
+// ご利用者様のLINE連携状況(申込完了画面と同じ判定・同じURL生成方法)。未連携の場合は
+// マイページからも連携用URLをコピーして送り直せるようにする
+$baseUrl = rtrim(Config::get('APP_BASE_URL', ''), '/');
+$addFriendUrl = Config::get('LINE_ADD_FRIEND_URL', '');
+
 $panels = [];
 foreach ($linkedUsers as $u) {
     $subStmt = $pdo->prepare(
@@ -208,6 +213,13 @@ foreach ($linkedUsers as $u) {
 
     $talkCountStmt->execute([(int) $u['id']]);
 
+    $userLineLinked = $u['line_user_id'] !== null;
+    $userLoginUrl = null;
+    if (!$userLineLinked && Config::get('LINE_LOGIN_CHANNEL_ID', '') !== '') {
+        $lineLoginClient = new LineLoginClient(Config::get('LINE_LOGIN_CHANNEL_ID', ''), Config::get('LINE_LOGIN_CHANNEL_SECRET', ''));
+        $userLoginUrl = $lineLoginClient->buildAuthorizeUrl($baseUrl . '/line_login_callback.php', (string) $u['invite_code']);
+    }
+
     $panels[] = [
         'user' => $u,
         'subscription' => $subStmt->fetch(PDO::FETCH_ASSOC) ?: null,
@@ -215,6 +227,10 @@ foreach ($linkedUsers as $u) {
         'riskEvents' => $riskRepo->getRecentForUser((int) $u['id'], 10),
         'todayTalkCount' => (int) $talkCountStmt->fetchColumn(),
         'themes' => $familyThemeRepo->getActiveForUser((int) $u['id']),
+        'userLineLinked' => $userLineLinked,
+        'userFriendConfirmed' => $u['status'] !== 'pending',
+        'userLoginUrl' => $userLoginUrl,
+        'addFriendUrl' => $addFriendUrl,
     ];
 }
 
@@ -306,6 +322,18 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
   .risk-item .level-low { color:var(--text-muted); font-weight:bold; }
   .risk-item .date { color:#999; font-size:0.8rem; }
   .empty-hint { color:#999; font-size:0.9rem; }
+  .copy-box { display:flex; gap:8px; margin:12px 0; flex-wrap:wrap; }
+  .copy-box input.copy-input { flex:1 1 200px; min-width:0; padding:10px 12px; font-size:0.82rem; border:1px solid #ddd6c7; border-radius:10px; background:#fffdf8; color:#555; }
+  .copy-box button.copy-btn { width:auto; flex:0 0 auto; margin-top:0; padding:10px 16px; }
+  .handoff-guide { list-style:none; margin:14px 0 0; padding:0; display:flex; flex-direction:column; gap:8px; }
+  .handoff-guide li { display:flex; align-items:center; gap:10px; font-size:0.88rem; }
+  .guide-icon { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:50%; background:var(--card-mint); color:var(--brand); flex-shrink:0; }
+  .qr-box { text-align:center; margin-top:12px; }
+  .qr-box img { width:140px; height:140px; border:1px solid #eee; border-radius:8px; padding:8px; background:#fff; }
+  .code-box { background:var(--card-mint); border:1px solid #cfdbc4; border-radius:10px; padding:14px; margin:10px 0; text-align:center; }
+  .code-box .code { font-size:1.5rem; font-weight:bold; letter-spacing:0.15em; color:var(--brand-dark); }
+  details.fallback { margin-top:12px; font-size:0.88rem; }
+  details.fallback summary { cursor:pointer; color:var(--brand); }
   .theme-item { display:flex; align-items:center; gap:10px; border:1px solid #eee; border-radius:12px; padding:10px 14px; margin-bottom:8px; font-size:0.9rem; }
   .theme-item .theme-text { flex:1; }
   .theme-item .theme-expiry { color:#999; font-size:0.8rem; white-space:nowrap; }
@@ -373,6 +401,32 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
 </div>
 
 </div>
+<script>
+(function () {
+  document.querySelectorAll('.copy-btn').forEach(function (btn) {
+    var defaultLabel = btn.textContent;
+    btn.addEventListener('click', function () {
+      var input = document.getElementById(btn.getAttribute('data-copy-target'));
+      if (!input) { return; }
+      var markCopied = function () {
+        btn.textContent = 'コピーしました';
+        setTimeout(function () { btn.textContent = defaultLabel; }, 2000);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(input.value).then(markCopied).catch(function () {
+          input.select();
+          document.execCommand('copy');
+          markCopied();
+        });
+      } else {
+        input.select();
+        document.execCommand('copy');
+        markCopied();
+      }
+    });
+  });
+})();
+</script>
     <?php
     Layout::renderFooter();
 }
@@ -450,6 +504,43 @@ function renderUserPanel(array $panel, array $family, int $savedUserId, int $the
       </dl>
     <?php else: ?>
       <p class="empty-hint">ご契約情報が見つかりませんでした。</p>
+    <?php endif; ?>
+  </div>
+
+  <div class="card">
+    <h2><?= Layout::icon('login') ?> LINE連携</h2>
+    <?php if ($panel['userFriendConfirmed']): ?>
+      <dl class="status-box">
+        <dt>連携状況</dt>
+        <dd>連携済み</dd>
+      </dl>
+    <?php elseif ($panel['userLineLinked']): ?>
+      <p class="empty-hint">LINEログインは完了していますが、友だち追加がまだ確認できていません。ご本人に公式アカウントの友だち追加をお願いしてください。</p>
+    <?php elseif ($panel['userLoginUrl'] !== null): ?>
+      <p class="empty-hint">まだLINE連携が完了していません。下のURLをコピーして、ご本人のスマートフォンに送ってください。</p>
+      <div class="copy-box">
+        <input type="text" class="copy-input" id="userHandoffUrl-<?= $userId ?>" value="<?= h($panel['userLoginUrl']) ?>" readonly onclick="this.select()">
+        <button type="button" class="button copy-btn" data-copy-target="userHandoffUrl-<?= $userId ?>"><?= Layout::icon('copy') ?> URLをコピーする</button>
+      </div>
+      <ol class="handoff-guide">
+        <li><span class="guide-icon"><?= Layout::icon('copy') ?></span><span>上のボタンでURLをコピーする</span></li>
+        <li><span class="guide-icon"><?= Layout::icon('chat') ?></span><span>LINEやSMSで、ご本人のスマートフォンに送る</span></li>
+        <li><span class="guide-icon"><?= Layout::icon('login') ?></span><span>ご本人がそのURLを開き、LINEでログインする</span></li>
+        <li><span class="guide-icon"><?= Layout::icon('check') ?></span><span>友だち追加まで自動で確認されます</span></li>
+      </ol>
+      <p class="empty-hint">連携が完了次第、こちらのLINEにお知らせします。</p>
+      <?php if (!empty($panel['addFriendUrl'])): ?>
+        <details class="fallback">
+          <summary>URLが開けない場合はこちら</summary>
+          <div class="qr-box">
+            <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=<?= urlencode($panel['addFriendUrl']) ?>" alt="友だち追加QRコード" width="160" height="160">
+          </div>
+          <p class="empty-hint">上記QRから友だち追加のうえ、最初のメッセージとして下記のコードをそのまま送信してください。</p>
+          <div class="code-box"><div class="code"><?= h((string) $u['invite_code']) ?></div></div>
+        </details>
+      <?php endif; ?>
+    <?php else: ?>
+      <p class="empty-hint">LINE連携機能が現在ご利用いただけません。サポートまでお問い合わせください。</p>
     <?php endif; ?>
   </div>
 

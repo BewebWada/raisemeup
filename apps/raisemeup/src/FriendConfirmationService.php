@@ -18,6 +18,37 @@ class FriendConfirmationService
                 'INSERT INTO conversations (user_id, direction, message_type, content) VALUES (?, "outbound", "text", ?)'
             )->execute([(int) $user['id'], $greeting]);
         }
+
+        self::notifyFamilyUserLinked($pdo, (int) $user['id']);
+    }
+
+    // ご利用者様のLINE連携(友だち追加まで)が完了したことを、紐づく家族(既に自分自身のLINE連携を
+    // 完了している場合のみ)に知らせる。コピーしたURLをご本人の端末に送った家族が、完了を待って
+    // 手動で確認し続けなくて済むようにするための通知
+    private static function notifyFamilyUserLinked(PDO $pdo, int $userId): void
+    {
+        $stmt = $pdo->prepare(
+            'SELECT f.line_user_id, COALESCE(u.full_name, u.display_name) AS user_name
+             FROM user_family_links l
+             JOIN family_accounts f ON f.id = l.family_account_id
+             JOIN users u ON u.id = l.user_id
+             WHERE l.user_id = ? AND l.is_active = 1
+               AND f.line_user_id IS NOT NULL AND f.friend_confirmed_at IS NOT NULL'
+        );
+        $stmt->execute([$userId]);
+        $families = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (empty($families)) {
+            return;
+        }
+
+        $familyLineClient = new LineClient(Config::get('LINE_FAMILY_CHANNEL_SECRET'), Config::get('LINE_FAMILY_CHANNEL_ACCESS_TOKEN'));
+        foreach ($families as $f) {
+            $userLabel = !empty($f['user_name']) ? $f['user_name'] . '様' : 'ご利用者様';
+            $familyLineClient->push(
+                $f['line_user_id'],
+                "{$userLabel}のLINE連携が完了しました。\nこれから会話が始まりますので、しばらく見守ってあげてください。"
+            );
+        }
     }
 
     public static function confirmFamily(FamilyAccountRepository $familyRepo, LineClient $lineClient, array $family): void

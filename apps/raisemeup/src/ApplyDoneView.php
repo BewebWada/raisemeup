@@ -256,6 +256,7 @@ function renderLineStep(
       <?php endif; ?>
       <form method="post" action="/apply_check_friend.php">
         <input type="hidden" name="target" value="<?= h($target) ?>">
+        <input type="hidden" name="code" value="<?= h((string) $inviteCode) ?>">
         <button type="submit" class="button secondary">友だち追加を確認して次へ</button>
       </form>
     <?php elseif ($loginUrl !== null): ?>
@@ -316,6 +317,7 @@ function renderUserHandoffStep(
       <?php endif; ?>
       <form method="post" action="/apply_check_friend.php">
         <input type="hidden" name="target" value="user">
+        <input type="hidden" name="code" value="<?= h((string) $inviteCode) ?>">
         <button type="submit" class="button secondary">友だち追加を確認して次へ</button>
       </form>
     <?php elseif ($loginUrl !== null): ?>
@@ -330,6 +332,7 @@ function renderUserHandoffStep(
         <li><span class="guide-icon"><?= Layout::icon('login') ?></span><span>ご本人がそのURLを開き、LINEでログインする</span></li>
         <li><span class="guide-icon"><?= Layout::icon('check') ?></span><span>友だち追加まで自動で確認されます</span></li>
       </ol>
+      <p class="hint" style="margin-top:12px;">現在、ご本人にLINE連携をお願いしている状態です。連携が完了次第、ご家族様のLINEにお知らせしますので、この画面を閉じてお待ちいただいて構いません。</p>
       <?php if ($fallbackAddFriendUrl !== '' && $inviteCode !== null): ?>
         <details class="fallback">
           <summary>URLが開けない場合はこちら</summary>

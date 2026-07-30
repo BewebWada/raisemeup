@@ -35,4 +35,4 @@ if ($familyId === false) {
     exit;
 }
 
-renderDone((int) $user['id'], (int) $familyId, $pdo, false);
+renderDone((int) $user['id'], (int) $familyId, $pdo, false, (string) ($_GET['line_error'] ?? ''));
