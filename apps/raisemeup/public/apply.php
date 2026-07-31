@@ -39,8 +39,8 @@ if (isset($_GET['cancelled']) && !empty($_SESSION['apply_result'])) {
 
 $errors = [];
 $formValues = [
-    'family_name' => '', 'family_email' => '', 'family_phone' => '',
-    'user_phone' => '', 'user_zip' => '', 'user_address' => '',
+    'family_last_name' => '', 'family_first_name' => '', 'family_email' => '', 'family_phone' => '',
+    'user_last_name' => '', 'user_first_name' => '', 'user_phone' => '', 'user_zip' => '', 'user_address' => '',
     'user_birthdate' => '', 'user_gender' => '', 'relation' => '', 'plan_id' => '', 'companion_gender' => 'random',
 ];
 
@@ -84,8 +84,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $selectablePlans = array_filter($activePlans, fn($p) => !$p['coming_soon']);
     $activePlanIds = array_map(fn($p) => (string) $p['id'], $selectablePlans);
 
-    if ($formValues['family_name'] === '') {
-        $errors[] = 'お申込者(ご家族)様のお名前を入力してください。';
+    if ($formValues['family_last_name'] === '' || $formValues['family_first_name'] === '') {
+        $errors[] = 'お申込者(ご家族)様のお名前(姓・名)を入力してください。';
+    }
+    // ご利用者様のお名前は任意(マイページから後で登録することもできる)だが、
+    // 姓・名どちらかだけ入力されている中途半端な状態は防ぐ
+    if (($formValues['user_last_name'] !== '') !== ($formValues['user_first_name'] !== '')) {
+        $errors[] = 'ご利用者様のお名前は姓・名の両方を入力してください。';
     }
     $duplicateFamily = null;
     $duplicateCanLogin = false;
@@ -169,15 +174,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $userRepo = new UserRepository($pdo);
             $subscriptionRepo = new SubscriptionRepository($pdo);
 
+            $familyFullName = trim($formValues['family_last_name'] . ' ' . $formValues['family_first_name']);
+            $userFullName = trim($formValues['user_last_name'] . ' ' . $formValues['user_first_name']);
+
             $family = $familyRepo->create([
-                'name' => $formValues['family_name'],
+                'name' => $familyFullName,
                 'email' => $formValues['family_email'],
                 'phone' => $formValues['family_phone'],
             ]);
 
             // 呼び名は申込み時には聞かず、TAYORIとの会話の中で自然に確認して
-            // ConversationHandlerが後から設定する(companion_nameと同じ方針)
+            // ConversationHandlerが後から設定する(companion_nameと同じ方針)。
+            // 氏名(full_name)はご家族が代理入力する管理用の名前で、呼び名とは別物
             $user = $userRepo->createPending([
+                'full_name' => $userFullName,
                 'display_name' => null,
                 'phone' => $formValues['user_phone'],
                 'postal_code' => $formValues['user_zip'],
@@ -215,7 +225,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stripe = new StripeClient(Config::get('STRIPE_SECRET_KEY', ''));
                     $customer = $stripe->createCustomer(
                         $formValues['family_email'],
-                        $formValues['family_name'],
+                        $familyFullName,
                         ['family_account_id' => (string) $family['id']]
                     );
                     $familyRepo->setStripeCustomerId((int) $family['id'], $customer['id']);
@@ -267,6 +277,8 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
   }
   .birthdate-row { display:flex; gap:8px; }
   .birthdate-row select { flex:1; min-width:0; box-sizing:border-box; padding:10px; font-size:1rem; border:1px solid #ccc; border-radius:6px; background:#fff; }
+  .name-row { display:flex; gap:8px; }
+  .name-row input[type=text] { flex:1; min-width:0; }
   .plan { border:1px solid #ddd; border-radius:8px; padding:12px; margin-bottom:8px; }
   .plan label { display:flex; align-items:baseline; gap:8px; font-weight:normal; margin:0; }
   .plan .price { color:#4B8B5A; font-weight:bold; }
@@ -335,8 +347,11 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
     <input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>">
 
     <h2>お申込者様(ご家族)について</h2>
-    <label for="family_name">お名前</label>
-    <input type="text" id="family_name" name="family_name" value="<?= h($v['family_name']) ?>" required>
+    <label for="family_last_name">お名前</label>
+    <div class="name-row">
+      <input type="text" id="family_last_name" name="family_last_name" value="<?= h($v['family_last_name']) ?>" placeholder="姓" required>
+      <input type="text" id="family_first_name" name="family_first_name" value="<?= h($v['family_first_name']) ?>" placeholder="名" required>
+    </div>
 
     <label for="family_email">メールアドレス</label>
     <input type="email" id="family_email" name="family_email" value="<?= h($v['family_email']) ?>">
@@ -345,6 +360,13 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
     <input type="tel" id="family_phone" name="family_phone" value="<?= h($v['family_phone']) ?>">
 
     <h2>ご利用者様(ご本人)について</h2>
+    <label for="user_last_name">お名前</label>
+    <div class="name-row">
+      <input type="text" id="user_last_name" name="user_last_name" value="<?= h($v['user_last_name']) ?>" placeholder="姓">
+      <input type="text" id="user_first_name" name="user_first_name" value="<?= h($v['user_first_name']) ?>" placeholder="名">
+    </div>
+    <div class="hint">任意です。ご登録いただくと、マイページやご家族向けの通知にこのお名前を表示します(あとからマイページで登録・変更することもできます)</div>
+
     <label for="relation">続柄</label>
     <input type="text" id="relation" name="relation" value="<?= h($v['relation']) ?>" placeholder="例: 息子、娘、ケアマネージャー">
 
