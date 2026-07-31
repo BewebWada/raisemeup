@@ -10,6 +10,24 @@ function h(string $value): string
     return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 }
 
+// 申込フロー全体(①入力→②お支払い→③ご家族連携→④ご本人連携)の進捗を示すステップ表示。
+// apply.php(フォーム画面)とrenderDone(連携画面)の両方から呼び出す共通パーツ。
+// $stepStates は 1〜4 をキーに 'done' | 'current' | 'attention' | 'upcoming'(省略時) を渡す
+function renderStepIndicator(array $stepStates): void
+{
+    $labels = ['お申込み内容', 'お支払い登録', 'ご家族連携', 'ご本人連携'];
+    ?>
+  <ol class="apply-steps">
+    <?php foreach ($labels as $i => $label): $state = $stepStates[$i + 1] ?? 'upcoming'; ?>
+      <li class="apply-step<?= $state !== 'upcoming' ? ' is-' . $state : '' ?>">
+        <span class="apply-step-circle"><?= $state === 'done' ? '✓' : $i + 1 ?></span>
+        <span class="apply-step-label"><?= h($label) ?></span>
+      </li>
+    <?php endforeach; ?>
+  </ol>
+    <?php
+}
+
 // $userId/$familyIdだけを受け取り、表示に必要な情報は毎回DBから取得する。
 // セッションだけでなく、招待コード経由(apply_resume.php、メールでのリマインド用)からも同じ画面を出せるようにするため
 function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, string $lineError = ''): void
@@ -104,8 +122,23 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
   .handoff-guide { list-style:none; margin:16px 0 0; padding:0; display:flex; flex-direction:column; gap:10px; }
   .handoff-guide li { display:flex; align-items:center; gap:10px; font-size:0.9rem; }
   .guide-icon { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:50%; background:#eef2ea; color:#4B8B5A; flex-shrink:0; }
+  .apply-steps { display:flex; list-style:none; margin:0 0 24px; padding:0; }
+  .apply-step { flex:1; position:relative; display:flex; flex-direction:column; align-items:center; text-align:center; font-size:0.72rem; color:#aaa; }
+  .apply-step:not(:last-child)::after { content:''; position:absolute; top:14px; left:calc(50% + 20px); right:calc(-50% + 20px); height:2px; background:#e6e2d8; }
+  .apply-step.is-done:not(:last-child)::after { background:#4B8B5A; }
+  .apply-step-circle { display:flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:50%; background:#e6e2d8; color:#8a8578; font-weight:bold; font-size:0.85rem; margin-bottom:6px; }
+  .apply-step.is-done .apply-step-circle { background:#4B8B5A; color:#fff; }
+  .apply-step.is-current .apply-step-circle { background:#fff; color:#4B8B5A; border:2px solid #4B8B5A; }
+  .apply-step.is-attention .apply-step-circle { background:#e8a33d; color:#fff; }
+  .apply-step.is-done .apply-step-label, .apply-step.is-current .apply-step-label { color:#3D3A35; font-weight:bold; }
 </style>
 <div class="card">
+  <?php renderStepIndicator([
+      1 => 'done',
+      2 => $paymentPending ? 'attention' : 'done',
+      3 => $familyFriendConfirmed ? 'done' : 'current',
+      4 => $userFriendConfirmed ? 'done' : ($familyFriendConfirmed ? 'current' : 'upcoming'),
+  ]); ?>
   <?php if ($allDone): ?>
     <h1><span class="done-icon">✓</span> ご登録が完了しました</h1>
     <p>ご本人・ご家族とも、LINE連携まですべて完了しました。ここまでのお申込み内容は以下の通りです。</p>

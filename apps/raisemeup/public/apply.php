@@ -262,8 +262,18 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
   .card button .icon { width:1.35em; height:1.35em; }
   .card button:hover { background:#1E4729; }
   .honeypot { position:absolute; left:-9999px; }
+  .apply-steps { display:flex; list-style:none; margin:0 0 24px; padding:0; }
+  .apply-step { flex:1; position:relative; display:flex; flex-direction:column; align-items:center; text-align:center; font-size:0.72rem; color:#aaa; }
+  .apply-step:not(:last-child)::after { content:''; position:absolute; top:14px; left:calc(50% + 20px); right:calc(-50% + 20px); height:2px; background:#e6e2d8; }
+  .apply-step.is-done:not(:last-child)::after { background:#4B8B5A; }
+  .apply-step-circle { display:flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:50%; background:#e6e2d8; color:#8a8578; font-weight:bold; font-size:0.85rem; margin-bottom:6px; }
+  .apply-step.is-done .apply-step-circle { background:#4B8B5A; color:#fff; }
+  .apply-step.is-current .apply-step-circle { background:#fff; color:#4B8B5A; border:2px solid #4B8B5A; }
+  .apply-step.is-attention .apply-step-circle { background:#e8a33d; color:#fff; }
+  .apply-step.is-done .apply-step-label, .apply-step.is-current .apply-step-label { color:#3D3A35; font-weight:bold; }
 </style>
 <div class="card">
+  <?php renderStepIndicator([1 => 'current']); ?>
   <h1>TAYORI ご利用申込</h1>
   <p>ご家族様が代わってお申込みください。お申込み後、<?= TRIAL_DAYS ?>日間無料でお試しいただけます。</p>
   <div class="notice"><strong>本お申込みは、ご家族様ご自身のスマートフォンまたはパソコンで行ってください。</strong>お申込み後、まずご家族様ご自身の端末でLINE連携を行っていただき、続けてご利用者様(ご本人)へ連携用のURLをお送りいただく流れになります。</div>
