@@ -448,22 +448,22 @@ Layout::renderHeader('top', '', true);
     </div>
     <div class="step">
       <div class="step-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.3"/><path d="M3.5 19.5c0-3.6 2.5-5.8 5.5-5.8s5.5 2.2 5.5 5.8"/><path d="M17 7.5h4.5M19.25 5.25v4.5"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.6"/><circle cx="16" cy="8" r="2.6"/><path d="M3 19c0-3 2.2-5 5-5s5 2 5 5"/><path d="M13.4 14.2c.5-.15 1-.2 1.6-.2 2.8 0 5 2 5 5"/></svg>
         <span class="step-num">2</span>
       </div>
       <div class="step-content">
-        <strong>ご本人がLINEで「TAYORI」を友だち追加</strong>
-        <p>ボタンをタップしてLINEでログインするだけで連携完了。あとは普段通りLINEでやり取りするだけです。</p>
+        <strong>まずご家族がLINEで「TAYORIサポート」を友だち追加</strong>
+        <p>お申込みいただいたご家族様ご自身の端末で、ボタンひとつで連携完了。週1回の「今週の様子」ダイジェストや、お支払いのご案内はこちらに届きます(見守りアラートは寄り添いスタンダード以上)。</p>
       </div>
     </div>
     <div class="step">
       <div class="step-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.6"/><circle cx="16" cy="8" r="2.6"/><path d="M3 19c0-3 2.2-5 5-5s5 2 5 5"/><path d="M13.4 14.2c.5-.15 1-.2 1.6-.2 2.8 0 5 2 5 5"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.3"/><path d="M3.5 19.5c0-3.6 2.5-5.8 5.5-5.8s5.5 2.2 5.5 5.8"/><path d="M17 7.5h4.5M19.25 5.25v4.5"/></svg>
         <span class="step-num">3</span>
       </div>
       <div class="step-content">
-        <strong>ご家族もLINEで「TAYORIサポート」を友だち追加</strong>
-        <p>週1回の「今週の様子」ダイジェストや、お支払いのご案内は、こちらの別アカウントに届きます(見守りアラートは寄り添いスタンダード以上)。お申込み完了画面から、ボタンひとつで連携できます。</p>
+        <strong>ご利用者様(ご本人)がLINEで「TAYORI」を友だち追加</strong>
+        <p>ご家族が画面に表示された連携用URLをコピーし、LINEなどでご本人のスマートフォンに送るだけ。ご本人はそのURLを開いて友だち追加するだけで連携完了。完了するとご家族に通知が届きます。</p>
       </div>
     </div>
     <div class="step">
