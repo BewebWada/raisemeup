@@ -279,6 +279,7 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
   .birthdate-row select { flex:1; min-width:0; box-sizing:border-box; padding:10px; font-size:1rem; border:1px solid #ccc; border-radius:6px; background:#fff; }
   .name-row { display:flex; gap:8px; }
   .name-row input[type=text] { flex:1; min-width:0; }
+  .zip-input { width:10em !important; }
   .plan { border:1px solid #ddd; border-radius:8px; padding:12px; margin-bottom:8px; }
   .plan label { display:flex; align-items:baseline; gap:8px; font-weight:normal; margin:0; }
   .plan .price { color:#4B8B5A; font-weight:bold; }
@@ -375,7 +376,7 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
     <input type="tel" id="user_phone" name="user_phone" value="<?= h($v['user_phone']) ?>">
 
     <label for="user_zip">郵便番号</label>
-    <input type="text" id="user_zip" name="user_zip" value="<?= h($v['user_zip']) ?>" inputmode="numeric" placeholder="1234567" maxlength="8">
+    <input type="text" id="user_zip" name="user_zip" class="zip-input" value="<?= h($v['user_zip']) ?>" inputmode="numeric" placeholder="1234567" maxlength="8">
     <div class="hint">ハイフンなしで入力すると、住所が自動で入力されます</div>
 
     <label for="user_address">ご住所</label>

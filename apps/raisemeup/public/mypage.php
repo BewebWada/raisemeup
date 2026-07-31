@@ -303,6 +303,7 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
     width:100%; box-sizing:border-box; padding:10px 12px; font-size:1rem; border:1px solid #ddd6c7; border-radius:10px; background:#fffdf8;
   }
   input:focus { outline:2px solid var(--brand); outline-offset:1px; }
+  .zip-input { width:10em !important; }
   .radio-group { display:flex; gap:16px; flex-wrap:wrap; margin:2px 0 4px; }
   .radio-group label { display:flex; align-items:baseline; gap:6px; font-weight:normal; margin:0; }
   .hint { font-size:0.85rem; color:var(--text-muted); margin-top:2px; }
@@ -645,7 +646,7 @@ function renderUserPanel(array $panel, array $family, int $savedUserId, int $the
       <label for="user_phone_<?= $userId ?>">電話番号</label>
       <input type="tel" id="user_phone_<?= $userId ?>" name="phone" value="<?= h((string) $u['phone']) ?>">
       <label for="user_zip_<?= $userId ?>">郵便番号</label>
-      <input type="text" id="user_zip_<?= $userId ?>" name="zip" value="<?= h((string) $u['postal_code']) ?>" inputmode="numeric" maxlength="8">
+      <input type="text" id="user_zip_<?= $userId ?>" name="zip" class="zip-input" value="<?= h((string) $u['postal_code']) ?>" inputmode="numeric" maxlength="8">
       <label for="user_address_<?= $userId ?>">ご住所</label>
       <input type="text" id="user_address_<?= $userId ?>" name="address" value="<?= h((string) $u['address']) ?>">
       <label for="user_birthdate_<?= $userId ?>">生年月日</label>
