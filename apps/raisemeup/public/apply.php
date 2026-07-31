@@ -241,7 +241,7 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
     Layout::renderHeader('apply', 'ご利用申込');
     ?>
 <style>
-  .card { max-width: 560px; margin: 0 auto; background:#fff; border-radius:12px; padding:28px 24px; box-shadow:0 2px 8px rgba(0,0,0,0.06); }
+  .card { max-width: 680px; margin: 0 auto; background:#fff; border-radius:12px; padding:28px 24px; box-shadow:0 2px 8px rgba(0,0,0,0.06); }
   .card h1 { font-size:1.4rem; margin-top:0; }
   .card h2 { font-size:1.05rem; margin:28px 0 12px; border-left:4px solid #4B8B5A; padding-left:8px; }
   .card label { display:block; font-weight:bold; margin:14px 0 4px; font-size:0.95rem; }
@@ -286,7 +286,7 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
   <p>ご家族様が代わってお申込みください。お申込み後、<?= TRIAL_DAYS ?>日間無料でお試しいただけます。</p>
   <div class="notice-important">
     <div class="notice-title"><?= Layout::icon('shield') ?> ご注意ください</div>
-    <p>本お申込みは、<span class="highlight">ご家族様ご自身のスマートフォンまたはパソコン</span>で行ってください。</p>
+    <p>お申込みは、<span class="highlight">ご家族様ご自身のスマートフォンまたはパソコン</span>で行ってください。</p>
     <ol class="notice-steps">
       <li><span class="num">1</span><span>このページで<strong>ご家族様</strong>がお申込み情報を入力・送信します</span></li>
       <li><span class="num">2</span><span>お申込み後、<strong>ご家族様ご自身の端末</strong>でLINE連携を行います</span></li>
