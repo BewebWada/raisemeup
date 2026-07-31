@@ -114,7 +114,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'update_family') {
         $familyName = trim((string) ($_POST['family_name'] ?? ''));
         $familyEmail = trim((string) ($_POST['family_email'] ?? ''));
-        $familyPhone = trim((string) ($_POST['family_phone'] ?? ''));
+        $familyPhone = preg_replace('/[^0-9]/', '', (string) ($_POST['family_phone'] ?? ''));
         $activeTab = 'family';
 
         if ($familyName === '') {
@@ -146,7 +146,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = '不正な操作です。';
         } else {
             $fullName = trim((string) ($_POST['full_name'] ?? ''));
-            $phone = trim((string) ($_POST['phone'] ?? ''));
+            $phone = preg_replace('/[^0-9]/', '', (string) ($_POST['phone'] ?? ''));
             $zip = preg_replace('/[^0-9]/', '', (string) ($_POST['zip'] ?? ''));
             $address = trim((string) ($_POST['address'] ?? ''));
             $birthdate = trim((string) ($_POST['birthdate'] ?? ''));

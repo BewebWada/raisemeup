@@ -148,6 +148,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($formValues['user_zip'] !== '' && strlen($formValues['user_zip']) !== 7) {
         $errors[] = '郵便番号は7桁の数字で入力してください。';
     }
+    // 電話番号もハイフンありなし両方許容し、DBには数字のみを保存する(表示形式を統一するため)
+    $formValues['family_phone'] = preg_replace('/[^0-9]/', '', $formValues['family_phone']);
+    $formValues['user_phone'] = preg_replace('/[^0-9]/', '', $formValues['user_phone']);
     if ($formValues['user_birthdate'] !== '') {
         $d = DateTime::createFromFormat('Y-m-d', $formValues['user_birthdate']);
         if (!$d || $d->format('Y-m-d') !== $formValues['user_birthdate'] || $d > new DateTime('now', new DateTimeZone('Asia/Tokyo'))) {
