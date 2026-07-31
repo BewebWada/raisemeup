@@ -271,12 +271,28 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
   .apply-step.is-current .apply-step-circle { background:#fff; color:#4B8B5A; border:2px solid #4B8B5A; }
   .apply-step.is-attention .apply-step-circle { background:#e8a33d; color:#fff; }
   .apply-step.is-done .apply-step-label, .apply-step.is-current .apply-step-label { color:#3D3A35; font-weight:bold; }
+  .notice-important { background:#fff; border:2px solid #4B8B5A; border-radius:12px; padding:18px 20px; margin-bottom:16px; }
+  .notice-important .notice-title { display:flex; align-items:center; gap:8px; font-weight:bold; color:#1E4729; font-size:1.02rem; margin-bottom:10px; }
+  .notice-important .notice-title .icon { width:1.3em; height:1.3em; }
+  .notice-important p { margin:0 0 14px; line-height:1.7; }
+  .notice-important .highlight { background:#FBE2C4; color:#1E4729; font-weight:bold; padding:1px 5px; border-radius:4px; }
+  .notice-steps { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px; }
+  .notice-steps li { display:flex; align-items:flex-start; gap:10px; font-size:0.92rem; line-height:1.6; }
+  .notice-steps .num { flex-shrink:0; display:flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:#4B8B5A; color:#fff; font-size:0.78rem; font-weight:bold; margin-top:1px; }
 </style>
 <div class="card">
   <?php renderStepIndicator([1 => 'current']); ?>
   <h1>TAYORI ご利用申込</h1>
   <p>ご家族様が代わってお申込みください。お申込み後、<?= TRIAL_DAYS ?>日間無料でお試しいただけます。</p>
-  <div class="notice"><strong>本お申込みは、ご家族様ご自身のスマートフォンまたはパソコンで行ってください。</strong>お申込み後、まずご家族様ご自身の端末でLINE連携を行っていただき、続けてご利用者様(ご本人)へ連携用のURLをお送りいただく流れになります。</div>
+  <div class="notice-important">
+    <div class="notice-title"><?= Layout::icon('shield') ?> ご注意ください</div>
+    <p>本お申込みは、<span class="highlight">ご家族様ご自身のスマートフォンまたはパソコン</span>で行ってください。</p>
+    <ol class="notice-steps">
+      <li><span class="num">1</span><span>このページで<strong>ご家族様</strong>がお申込み情報を入力・送信します</span></li>
+      <li><span class="num">2</span><span>お申込み後、<strong>ご家族様ご自身の端末</strong>でLINE連携を行います</span></li>
+      <li><span class="num">3</span><span>続けて、<strong>ご利用者様(ご本人)</strong>へ連携用のURLをお送りいただきます</span></li>
+    </ol>
+  </div>
 
   <?php if ($duplicateFamily !== null): ?>
     <?php $resumable = (int) ($_SESSION['apply_result']['family_id'] ?? 0) === (int) $duplicateFamily['id']; ?>
