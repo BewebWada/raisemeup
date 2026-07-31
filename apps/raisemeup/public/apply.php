@@ -367,8 +367,8 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
     </div>
     <div class="hint">任意です。ご登録いただくと、マイページやご家族向けの通知にこのお名前を表示します(あとからマイページで登録・変更することもできます)</div>
 
-    <label for="relation">ご本人との続柄</label>
-    <div class="hint">ご利用者様(ご本人)から見て、お申込みされる<strong>ご家族様(あなた)</strong>が何にあたるかをご記入ください</div>
+    <label for="relation">ご利用者様との続柄</label>
+    <div class="hint">ご利用者様から見て、お申込みされる<strong>ご家族様(あなた)</strong>が何にあたるかをご記入ください</div>
     <input type="text" id="relation" name="relation" value="<?= h($v['relation']) ?>" placeholder="例: 息子、娘、ケアマネージャー">
 
     <label for="user_phone">電話番号</label>

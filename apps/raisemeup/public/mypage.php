@@ -639,8 +639,8 @@ function renderUserPanel(array $panel, array $family, int $savedUserId, int $the
         <div class="hint">まだ本人との会話で確認できていません。会話の中でTAYORIが自然に尋ね、確認でき次第自動的に設定されます。</div>
       <?php endif; ?>
 
-      <label for="relation_<?= $userId ?>">ご本人との続柄</label>
-      <div class="hint">ご利用者様(ご本人)から見て、ご家族様が何にあたるかをご記入ください(例: 息子、娘、ケアマネージャー)</div>
+      <label for="relation_<?= $userId ?>">ご利用者様との続柄</label>
+      <div class="hint">ご利用者様から見て、ご家族様が何にあたるかをご記入ください(例: 息子、娘、ケアマネージャー)</div>
       <input type="text" id="relation_<?= $userId ?>" name="relation" value="<?= h((string) $u['relation']) ?>">
       <label for="user_phone_<?= $userId ?>">電話番号</label>
       <input type="tel" id="user_phone_<?= $userId ?>" name="phone" value="<?= h((string) $u['phone']) ?>">
