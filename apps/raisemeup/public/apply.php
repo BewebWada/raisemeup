@@ -65,6 +65,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $formValues[$key] = trim((string) ($_POST[$key] ?? ''));
     }
 
+    // 生年月日は年・月・日の3つのプルダウンで入力させ(高齢のご家族が申込む場合、日付型の
+    // カレンダーUIだと何十年も遡るのに不便なため)、ここでY-m-d形式に組み立てる
+    $birthYear = trim((string) ($_POST['user_birthdate_year'] ?? ''));
+    $birthMonth = trim((string) ($_POST['user_birthdate_month'] ?? ''));
+    $birthDay = trim((string) ($_POST['user_birthdate_day'] ?? ''));
+    if ($birthYear !== '' && $birthMonth !== '' && $birthDay !== '') {
+        $formValues['user_birthdate'] = sprintf('%04d-%02d-%02d', (int) $birthYear, (int) $birthMonth, (int) $birthDay);
+    } elseif ($birthYear !== '' || $birthMonth !== '' || $birthDay !== '') {
+        $formValues['user_birthdate'] = '';
+        $errors[] = '生年月日は年・月・日をすべて選択してください。';
+    } else {
+        $formValues['user_birthdate'] = '';
+    }
+
     $activePlans = $planRepo->getActivePlans();
     // coming_soonなプランは表示はするが、申込みでは選択できないようにする(サービス開始前のため)
     $selectablePlans = array_filter($activePlans, fn($p) => !$p['coming_soon']);
@@ -238,6 +252,9 @@ renderForm($planRepo->getActivePlans(), $errors, $formValues, $_SESSION['apply_c
 
 function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?array $duplicateFamily = null, bool $duplicateCanLogin = false): void
 {
+    [$bdYear, $bdMonth, $bdDay] = $v['user_birthdate'] !== '' ? explode('-', $v['user_birthdate']) : ['', '', ''];
+    $bdMonth = $bdMonth !== '' ? (string) (int) $bdMonth : '';
+    $bdDay = $bdDay !== '' ? (string) (int) $bdDay : '';
     Layout::renderHeader('apply', 'ご利用申込');
     ?>
 <style>
@@ -248,6 +265,8 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
   .card input[type=text], .card input[type=email], .card input[type=tel], .card input[type=date] {
     width:100%; box-sizing:border-box; padding:10px; font-size:1rem; border:1px solid #ccc; border-radius:6px;
   }
+  .birthdate-row { display:flex; gap:8px; }
+  .birthdate-row select { flex:1; min-width:0; box-sizing:border-box; padding:10px; font-size:1rem; border:1px solid #ccc; border-radius:6px; background:#fff; }
   .plan { border:1px solid #ddd; border-radius:8px; padding:12px; margin-bottom:8px; }
   .plan label { display:flex; align-items:baseline; gap:8px; font-weight:normal; margin:0; }
   .plan .price { color:#4B8B5A; font-weight:bold; }
@@ -339,8 +358,27 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
     <label for="user_address">ご住所</label>
     <input type="text" id="user_address" name="user_address" value="<?= h($v['user_address']) ?>">
 
-    <label for="user_birthdate">生年月日</label>
-    <input type="date" id="user_birthdate" name="user_birthdate" value="<?= h($v['user_birthdate']) ?>">
+    <label for="user_birthdate_year">生年月日</label>
+    <div class="birthdate-row">
+      <select id="user_birthdate_year" name="user_birthdate_year">
+        <option value="">年</option>
+        <?php for ($y = (int) date('Y'); $y >= (int) date('Y') - 110; $y--): ?>
+          <option value="<?= $y ?>" <?= $bdYear === (string) $y ? 'selected' : '' ?>><?= $y ?>年</option>
+        <?php endfor; ?>
+      </select>
+      <select id="user_birthdate_month" name="user_birthdate_month">
+        <option value="">月</option>
+        <?php for ($m = 1; $m <= 12; $m++): ?>
+          <option value="<?= $m ?>" <?= $bdMonth === (string) $m ? 'selected' : '' ?>><?= $m ?>月</option>
+        <?php endfor; ?>
+      </select>
+      <select id="user_birthdate_day" name="user_birthdate_day">
+        <option value="">日</option>
+        <?php for ($d = 1; $d <= 31; $d++): ?>
+          <option value="<?= $d ?>" <?= $bdDay === (string) $d ? 'selected' : '' ?>><?= $d ?>日</option>
+        <?php endfor; ?>
+      </select>
+    </div>
 
     <label>ご本人の性別</label>
     <div class="hint">任意です。会話の話し方・言葉選びを合わせる参考にします</div>
