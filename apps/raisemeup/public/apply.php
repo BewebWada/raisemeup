@@ -148,9 +148,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($formValues['user_zip'] !== '' && strlen($formValues['user_zip']) !== 7) {
         $errors[] = '郵便番号は7桁の数字で入力してください。';
     }
-    // 電話番号もハイフンありなし両方許容し、DBには数字のみを保存する(表示形式を統一するため)
+    // 電話番号もハイフンありなし両方許容し、DBには数字のみを保存する(表示形式を統一するため)。
+    // 携帯(11桁)・固定/フリーダイヤル(10桁)を許容する
     $formValues['family_phone'] = preg_replace('/[^0-9]/', '', $formValues['family_phone']);
+    if ($formValues['family_phone'] !== '' && !in_array(strlen($formValues['family_phone']), [10, 11], true)) {
+        $errors[] = 'お申込者(ご家族)様の電話番号は10〜11桁の数字で入力してください。';
+    }
     $formValues['user_phone'] = preg_replace('/[^0-9]/', '', $formValues['user_phone']);
+    if ($formValues['user_phone'] !== '' && !in_array(strlen($formValues['user_phone']), [10, 11], true)) {
+        $errors[] = 'ご利用者様の電話番号は10〜11桁の数字で入力してください。';
+    }
     if ($formValues['user_birthdate'] !== '') {
         $d = DateTime::createFromFormat('Y-m-d', $formValues['user_birthdate']);
         if (!$d || $d->format('Y-m-d') !== $formValues['user_birthdate'] || $d > new DateTime('now', new DateTimeZone('Asia/Tokyo'))) {

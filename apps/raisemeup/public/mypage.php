@@ -120,6 +120,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($familyName === '') {
             $errors[] = 'お名前を入力してください。';
         }
+        if ($familyPhone !== '' && !in_array(strlen($familyPhone), [10, 11], true)) {
+            $errors[] = '電話番号は10〜11桁の数字で入力してください。';
+        }
         if ($familyEmail !== '' && !filter_var($familyEmail, FILTER_VALIDATE_EMAIL)) {
             $errors[] = 'メールアドレスの形式が正しくありません。';
         } elseif ($familyEmail !== '' && $familyEmail !== $family['email']) {
@@ -162,21 +165,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!in_array($gender, ['male', 'female'], true)) {
                 $gender = '';
             }
+            if ($phone !== '' && !in_array(strlen($phone), [10, 11], true)) {
+                $errors[] = '電話番号は10〜11桁の数字で入力してください。';
+            }
 
-            $userRepo->update($userId, [
-                'full_name' => $fullName,
-                'phone' => $phone,
-                'postal_code' => $zip,
-                'address' => $address,
-                'birthdate' => $birthdate,
-                'gender' => $gender,
-            ]);
+            if (empty($errors)) {
+                $userRepo->update($userId, [
+                    'full_name' => $fullName,
+                    'phone' => $phone,
+                    'postal_code' => $zip,
+                    'address' => $address,
+                    'birthdate' => $birthdate,
+                    'gender' => $gender,
+                ]);
 
-            $pdo->prepare(
-                'UPDATE user_family_links SET relation = ? WHERE user_id = ? AND family_account_id = ?'
-            )->execute([$relation ?: null, $userId, (int) $family['id']]);
+                $pdo->prepare(
+                    'UPDATE user_family_links SET relation = ? WHERE user_id = ? AND family_account_id = ?'
+                )->execute([$relation ?: null, $userId, (int) $family['id']]);
 
-            $savedUserId = $userId;
+                $savedUserId = $userId;
+            }
         }
     }
 }
