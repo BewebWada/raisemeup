@@ -39,8 +39,8 @@ if (isset($_GET['cancelled']) && !empty($_SESSION['apply_result'])) {
 
 $errors = [];
 $formValues = [
-    'family_name' => '', 'family_email' => '', 'family_phone' => '',
-    'user_phone' => '', 'user_zip' => '', 'user_address' => '',
+    'family_last_name' => '', 'family_first_name' => '', 'family_email' => '', 'family_phone' => '',
+    'user_last_name' => '', 'user_first_name' => '', 'user_phone' => '', 'user_zip' => '', 'user_address' => '',
     'user_birthdate' => '', 'user_gender' => '', 'relation' => '', 'plan_id' => '', 'companion_gender' => 'random',
 ];
 
@@ -65,13 +65,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $formValues[$key] = trim((string) ($_POST[$key] ?? ''));
     }
 
+    // 生年月日は年・月・日の3つのプルダウンで入力させ(高齢のご家族が申込む場合、日付型の
+    // カレンダーUIだと何十年も遡るのに不便なため)、ここでY-m-d形式に組み立てる
+    $birthYear = trim((string) ($_POST['user_birthdate_year'] ?? ''));
+    $birthMonth = trim((string) ($_POST['user_birthdate_month'] ?? ''));
+    $birthDay = trim((string) ($_POST['user_birthdate_day'] ?? ''));
+    if ($birthYear !== '' && $birthMonth !== '' && $birthDay !== '') {
+        $formValues['user_birthdate'] = sprintf('%04d-%02d-%02d', (int) $birthYear, (int) $birthMonth, (int) $birthDay);
+    } elseif ($birthYear !== '' || $birthMonth !== '' || $birthDay !== '') {
+        $formValues['user_birthdate'] = '';
+        $errors[] = '生年月日は年・月・日をすべて選択してください。';
+    } else {
+        $formValues['user_birthdate'] = '';
+    }
+
     $activePlans = $planRepo->getActivePlans();
     // coming_soonなプランは表示はするが、申込みでは選択できないようにする(サービス開始前のため)
     $selectablePlans = array_filter($activePlans, fn($p) => !$p['coming_soon']);
     $activePlanIds = array_map(fn($p) => (string) $p['id'], $selectablePlans);
 
-    if ($formValues['family_name'] === '') {
-        $errors[] = 'お申込者(ご家族)様のお名前を入力してください。';
+    if ($formValues['family_last_name'] === '' || $formValues['family_first_name'] === '') {
+        $errors[] = 'お申込者(ご家族)様のお名前(姓・名)を入力してください。';
+    }
+    // ご利用者様のお名前は任意(マイページから後で登録することもできる)だが、
+    // 姓・名どちらかだけ入力されている中途半端な状態は防ぐ
+    if (($formValues['user_last_name'] !== '') !== ($formValues['user_first_name'] !== '')) {
+        $errors[] = 'ご利用者様のお名前は姓・名の両方を入力してください。';
     }
     $duplicateFamily = null;
     $duplicateCanLogin = false;
@@ -129,6 +148,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($formValues['user_zip'] !== '' && strlen($formValues['user_zip']) !== 7) {
         $errors[] = '郵便番号は7桁の数字で入力してください。';
     }
+    // 電話番号もハイフンありなし両方許容し、DBには数字のみを保存する(表示形式を統一するため)。
+    // 携帯(11桁)・固定/フリーダイヤル(10桁)を許容する
+    $formValues['family_phone'] = preg_replace('/[^0-9]/', '', $formValues['family_phone']);
+    if ($formValues['family_phone'] !== '' && !in_array(strlen($formValues['family_phone']), [10, 11], true)) {
+        $errors[] = 'お申込者(ご家族)様の電話番号は10〜11桁の数字で入力してください。';
+    }
+    $formValues['user_phone'] = preg_replace('/[^0-9]/', '', $formValues['user_phone']);
+    if ($formValues['user_phone'] !== '' && !in_array(strlen($formValues['user_phone']), [10, 11], true)) {
+        $errors[] = 'ご利用者様の電話番号は10〜11桁の数字で入力してください。';
+    }
     if ($formValues['user_birthdate'] !== '') {
         $d = DateTime::createFromFormat('Y-m-d', $formValues['user_birthdate']);
         if (!$d || $d->format('Y-m-d') !== $formValues['user_birthdate'] || $d > new DateTime('now', new DateTimeZone('Asia/Tokyo'))) {
@@ -155,15 +184,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $userRepo = new UserRepository($pdo);
             $subscriptionRepo = new SubscriptionRepository($pdo);
 
+            $familyFullName = trim($formValues['family_last_name'] . ' ' . $formValues['family_first_name']);
+            $userFullName = trim($formValues['user_last_name'] . ' ' . $formValues['user_first_name']);
+
             $family = $familyRepo->create([
-                'name' => $formValues['family_name'],
+                'name' => $familyFullName,
                 'email' => $formValues['family_email'],
                 'phone' => $formValues['family_phone'],
             ]);
 
             // 呼び名は申込み時には聞かず、TAYORIとの会話の中で自然に確認して
-            // ConversationHandlerが後から設定する(companion_nameと同じ方針)
+            // ConversationHandlerが後から設定する(companion_nameと同じ方針)。
+            // 氏名(full_name)はご家族が代理入力する管理用の名前で、呼び名とは別物
             $user = $userRepo->createPending([
+                'full_name' => $userFullName,
                 'display_name' => null,
                 'phone' => $formValues['user_phone'],
                 'postal_code' => $formValues['user_zip'],
@@ -201,7 +235,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stripe = new StripeClient(Config::get('STRIPE_SECRET_KEY', ''));
                     $customer = $stripe->createCustomer(
                         $formValues['family_email'],
-                        $formValues['family_name'],
+                        $familyFullName,
                         ['family_account_id' => (string) $family['id']]
                     );
                     $familyRepo->setStripeCustomerId((int) $family['id'], $customer['id']);
@@ -238,16 +272,24 @@ renderForm($planRepo->getActivePlans(), $errors, $formValues, $_SESSION['apply_c
 
 function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?array $duplicateFamily = null, bool $duplicateCanLogin = false): void
 {
+    [$bdYear, $bdMonth, $bdDay] = $v['user_birthdate'] !== '' ? explode('-', $v['user_birthdate']) : ['', '', ''];
+    $bdMonth = $bdMonth !== '' ? (string) (int) $bdMonth : '';
+    $bdDay = $bdDay !== '' ? (string) (int) $bdDay : '';
     Layout::renderHeader('apply', 'ご利用申込');
     ?>
 <style>
-  .card { max-width: 560px; margin: 0 auto; background:#fff; border-radius:12px; padding:28px 24px; box-shadow:0 2px 8px rgba(0,0,0,0.06); }
+  .card { max-width: 680px; margin: 0 auto; background:#fff; border-radius:12px; padding:28px 24px; box-shadow:0 2px 8px rgba(0,0,0,0.06); }
   .card h1 { font-size:1.4rem; margin-top:0; }
   .card h2 { font-size:1.05rem; margin:28px 0 12px; border-left:4px solid #4B8B5A; padding-left:8px; }
   .card label { display:block; font-weight:bold; margin:14px 0 4px; font-size:0.95rem; }
   .card input[type=text], .card input[type=email], .card input[type=tel], .card input[type=date] {
     width:100%; box-sizing:border-box; padding:10px; font-size:1rem; border:1px solid #ccc; border-radius:6px;
   }
+  .birthdate-row { display:flex; gap:8px; }
+  .birthdate-row select { flex:1; min-width:0; box-sizing:border-box; padding:10px; font-size:1rem; border:1px solid #ccc; border-radius:6px; background:#fff; }
+  .name-row { display:flex; gap:8px; }
+  .name-row input[type=text] { flex:1; min-width:0; }
+  .zip-input { width:10em !important; }
   .plan { border:1px solid #ddd; border-radius:8px; padding:12px; margin-bottom:8px; }
   .plan label { display:flex; align-items:baseline; gap:8px; font-weight:normal; margin:0; }
   .plan .price { color:#4B8B5A; font-weight:bold; }
@@ -262,10 +304,37 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
   .card button .icon { width:1.35em; height:1.35em; }
   .card button:hover { background:#1E4729; }
   .honeypot { position:absolute; left:-9999px; }
+  .apply-steps { display:flex; list-style:none; margin:0 0 24px; padding:0; }
+  .apply-step { flex:1; position:relative; display:flex; flex-direction:column; align-items:center; text-align:center; font-size:0.72rem; color:#aaa; }
+  .apply-step:not(:last-child)::after { content:''; position:absolute; top:14px; left:calc(50% + 20px); right:calc(-50% + 20px); height:2px; background:#e6e2d8; }
+  .apply-step.is-done:not(:last-child)::after { background:#4B8B5A; }
+  .apply-step-circle { display:flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:50%; background:#e6e2d8; color:#8a8578; font-weight:bold; font-size:0.85rem; margin-bottom:6px; }
+  .apply-step.is-done .apply-step-circle { background:#4B8B5A; color:#fff; }
+  .apply-step.is-current .apply-step-circle { background:#fff; color:#4B8B5A; border:2px solid #4B8B5A; }
+  .apply-step.is-attention .apply-step-circle { background:#e8a33d; color:#fff; }
+  .apply-step.is-done .apply-step-label, .apply-step.is-current .apply-step-label { color:#3D3A35; font-weight:bold; }
+  .notice-important { background:#fff; border:2px solid #4B8B5A; border-radius:12px; padding:18px 20px; margin-bottom:16px; }
+  .notice-important .notice-title { display:flex; align-items:center; gap:8px; font-weight:bold; color:#1E4729; font-size:1.02rem; margin-bottom:10px; }
+  .notice-important .notice-title .icon { width:1.3em; height:1.3em; }
+  .notice-important p { margin:0 0 14px; line-height:1.7; }
+  .notice-important .highlight { background:#FBE2C4; color:#1E4729; font-weight:bold; padding:1px 5px; border-radius:4px; }
+  .notice-steps { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px; }
+  .notice-steps li { display:flex; align-items:flex-start; gap:10px; font-size:0.92rem; line-height:1.6; }
+  .notice-steps .num { flex-shrink:0; display:flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:#4B8B5A; color:#fff; font-size:0.78rem; font-weight:bold; margin-top:1px; }
 </style>
 <div class="card">
+  <?php renderStepIndicator([1 => 'current']); ?>
   <h1>TAYORI ご利用申込</h1>
-  <p>ご家族が代わってお申込みください。お申込み後、<?= TRIAL_DAYS ?>日間無料でお試しいただけます。</p>
+  <p>ご家族様が代わってお申込みください。お申込み後、<?= TRIAL_DAYS ?>日間無料でお試しいただけます。</p>
+  <div class="notice-important">
+    <div class="notice-title"><?= Layout::icon('shield') ?> ご注意ください</div>
+    <p>お申込みは、<span class="highlight">ご家族様ご自身のスマートフォンまたはパソコン</span>で行ってください。</p>
+    <ol class="notice-steps">
+      <li><span class="num">1</span><span>このページで<strong>ご家族様</strong>がお申込み情報を入力・送信します</span></li>
+      <li><span class="num">2</span><span>お申込み後、<strong>ご家族様ご自身の端末</strong>でLINE連携を行います</span></li>
+      <li><span class="num">3</span><span>続けて、<strong>ご利用者様(ご本人)</strong>へ連携用のURLをお送りいただきます</span></li>
+    </ol>
+  </div>
 
   <?php if ($duplicateFamily !== null): ?>
     <?php $resumable = (int) ($_SESSION['apply_result']['family_id'] ?? 0) === (int) $duplicateFamily['id']; ?>
@@ -289,8 +358,11 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
     <input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>">
 
     <h2>お申込者様(ご家族)について</h2>
-    <label for="family_name">お名前</label>
-    <input type="text" id="family_name" name="family_name" value="<?= h($v['family_name']) ?>" required>
+    <label for="family_last_name">お名前</label>
+    <div class="name-row">
+      <input type="text" id="family_last_name" name="family_last_name" value="<?= h($v['family_last_name']) ?>" placeholder="姓" required>
+      <input type="text" id="family_first_name" name="family_first_name" value="<?= h($v['family_first_name']) ?>" placeholder="名" required>
+    </div>
 
     <label for="family_email">メールアドレス</label>
     <input type="email" id="family_email" name="family_email" value="<?= h($v['family_email']) ?>">
@@ -299,21 +371,48 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
     <input type="tel" id="family_phone" name="family_phone" value="<?= h($v['family_phone']) ?>">
 
     <h2>ご利用者様(ご本人)について</h2>
-    <label for="relation">続柄</label>
+    <label for="user_last_name">お名前</label>
+    <div class="name-row">
+      <input type="text" id="user_last_name" name="user_last_name" value="<?= h($v['user_last_name']) ?>" placeholder="姓">
+      <input type="text" id="user_first_name" name="user_first_name" value="<?= h($v['user_first_name']) ?>" placeholder="名">
+    </div>
+    <div class="hint">任意です。ご登録いただくと、マイページやご家族向けの通知にこのお名前を表示します(あとからマイページで登録・変更することもできます)</div>
+
+    <label for="relation">ご利用者様との続柄</label>
+    <div class="hint">ご利用者様から見て、お申込みされる<strong>ご家族様(あなた)</strong>が何にあたるかをご記入ください</div>
     <input type="text" id="relation" name="relation" value="<?= h($v['relation']) ?>" placeholder="例: 息子、娘、ケアマネージャー">
 
     <label for="user_phone">電話番号</label>
     <input type="tel" id="user_phone" name="user_phone" value="<?= h($v['user_phone']) ?>">
 
     <label for="user_zip">郵便番号</label>
-    <input type="text" id="user_zip" name="user_zip" value="<?= h($v['user_zip']) ?>" inputmode="numeric" placeholder="1234567" maxlength="8">
+    <input type="text" id="user_zip" name="user_zip" class="zip-input" value="<?= h($v['user_zip']) ?>" inputmode="numeric" placeholder="1234567" maxlength="8">
     <div class="hint">ハイフンなしで入力すると、住所が自動で入力されます</div>
 
     <label for="user_address">ご住所</label>
     <input type="text" id="user_address" name="user_address" value="<?= h($v['user_address']) ?>">
 
-    <label for="user_birthdate">生年月日</label>
-    <input type="date" id="user_birthdate" name="user_birthdate" value="<?= h($v['user_birthdate']) ?>">
+    <label for="user_birthdate_year">生年月日</label>
+    <div class="birthdate-row">
+      <select id="user_birthdate_year" name="user_birthdate_year">
+        <option value="">年</option>
+        <?php for ($y = (int) date('Y'); $y >= (int) date('Y') - 110; $y--): ?>
+          <option value="<?= $y ?>" <?= $bdYear === (string) $y ? 'selected' : '' ?>><?= $y ?>年</option>
+        <?php endfor; ?>
+      </select>
+      <select id="user_birthdate_month" name="user_birthdate_month">
+        <option value="">月</option>
+        <?php for ($m = 1; $m <= 12; $m++): ?>
+          <option value="<?= $m ?>" <?= $bdMonth === (string) $m ? 'selected' : '' ?>><?= $m ?>月</option>
+        <?php endfor; ?>
+      </select>
+      <select id="user_birthdate_day" name="user_birthdate_day">
+        <option value="">日</option>
+        <?php for ($d = 1; $d <= 31; $d++): ?>
+          <option value="<?= $d ?>" <?= $bdDay === (string) $d ? 'selected' : '' ?>><?= $d ?>日</option>
+        <?php endfor; ?>
+      </select>
+    </div>
 
     <label>ご本人の性別</label>
     <div class="hint">任意です。会話の話し方・言葉選びを合わせる参考にします</div>

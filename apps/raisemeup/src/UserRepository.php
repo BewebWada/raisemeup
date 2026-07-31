@@ -42,10 +42,11 @@ class UserRepository
     {
         $inviteCode = InviteCodeGenerator::generate($this->pdo, 'users');
         $this->pdo->prepare(
-            "INSERT INTO users (invite_code, display_name, phone, postal_code, address, birthdate, gender, companion_gender, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')"
+            "INSERT INTO users (invite_code, full_name, display_name, phone, postal_code, address, birthdate, gender, companion_gender, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')"
         )->execute([
             $inviteCode,
+            $data['full_name'] ?: null,
             $data['display_name'] ?: null,
             $data['phone'] ?: null,
             $data['postal_code'] ?: null,
