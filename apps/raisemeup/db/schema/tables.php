@@ -320,4 +320,19 @@ return [
         FOREIGN KEY (family_account_id) REFERENCES family_accounts(id) ON DELETE CASCADE,
         INDEX idx_user_status (user_id, status)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ご家族が設定する、TAYORIが出典を明かさず自然に気にかけ続けてほしい継続的なテーマ(伝言とは別物)';",
+
+    'pending_replies' => "CREATE TABLE IF NOT EXISTS pending_replies (
+        id                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        user_id             BIGINT UNSIGNED NOT NULL,
+        line_user_id        VARCHAR(64) NOT NULL COMMENT 'push送信先。usersからの都度JOINを避けるため非正規化',
+        reply_text          TEXT NOT NULL,
+        send_after          DATETIME NOT NULL COMMENT 'この時刻以降にsend_pending_replies.phpが送信する',
+        status              ENUM('pending', 'sending', 'sent', 'cancelled') NOT NULL DEFAULT 'pending',
+        claude_model        VARCHAR(50) DEFAULT NULL,
+        sent_at             DATETIME DEFAULT NULL,
+        created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        INDEX idx_status_send_after (status, send_after),
+        INDEX idx_user_status (user_id, status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='緊急性の低い普通の雑談を、即レスの機械的な印象を避けるため数分置いてpush APIで送るための遅延キュー(ConversationHandler::flushPendingReplies/send_pending_replies.phpが処理)';",
 ];

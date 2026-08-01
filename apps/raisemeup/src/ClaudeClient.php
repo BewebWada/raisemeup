@@ -135,7 +135,7 @@ PROMPT;
         // 実際に生成できた自然な返信を届けることを優先する)
         if (trim($text) !== '' && strpos($text, '{') === false) {
             error_log("Claude API: JSON形式でない応答をそのまま採用 (attempt {$attempt}): " . substr($text, 0, 300));
-            return ['reply_text' => trim($text), 'persons' => [], 'schedules' => [], 'quiet_hours' => null, 'requested_companion_name' => null, 'learned_user_display_name' => null, 'family_message_delivered' => false, 'topics_touched' => []];
+            return ['reply_text' => trim($text), 'persons' => [], 'schedules' => [], 'quiet_hours' => null, 'requested_companion_name' => null, 'learned_user_display_name' => null, 'family_message_delivered' => false, 'topics_touched' => [], 'prompt_reply_needed' => false];
         }
 
         error_log("Claude API reply JSON parse failed (attempt {$attempt}, stop_reason={$stopReason}): " . substr($text, 0, 1500));
@@ -159,7 +159,7 @@ PROMPT;
 
     private function fallback(): array
     {
-        return ['reply_text' => self::FALLBACK_REPLY, 'persons' => [], 'schedules' => [], 'quiet_hours' => null, 'requested_companion_name' => null, 'learned_user_display_name' => null, 'family_message_delivered' => false, 'topics_touched' => []];
+        return ['reply_text' => self::FALLBACK_REPLY, 'persons' => [], 'schedules' => [], 'quiet_hours' => null, 'requested_companion_name' => null, 'learned_user_display_name' => null, 'family_message_delivered' => false, 'topics_touched' => [], 'prompt_reply_needed' => false];
     }
 
     private const LOOKUP_TYPE_LABELS = [
@@ -1273,7 +1273,8 @@ PROMPT;
   "travel_mode": null,
   "medication_confirmed": [],
   "family_message_delivered": false,
-  "topics_touched": []
+  "topics_touched": [],
+  "prompt_reply_needed": false
 }
 
 【date_specの埋め方(重要:自分で日付を計算しないこと。実際の日付計算はシステム側で行います)】
@@ -1454,6 +1455,17 @@ PROMPT;
 挨拶や相槌だけの短いやり取りで内容が具体的に話されていない場合、単語が一瞬出ただけで深掘りされていない
 場合は含めないこと。あなた自身(AI)が自分の話としてその話題に触れた場合も対象に含めてよい(利用者が
 話した内容だけでなく、会話としてどのジャンルをカバーしたかを追跡するため)。
+
+【prompt_reply_needed(即答すべき内容かどうか)】
+システム側は通常、即レスだと機械的な印象になるため普通の雑談への返信は数分置いてから送るが、
+以下のいずれかに該当する場合は利用者を待たせるべきではないため、"prompt_reply_needed"をtrueにして
+即座に返信させること。それ以外の普通の雑談・世間話・相槌のやり取りでは、必ずfalseのままにする。
+- 予定・時間についての単純な事実確認(例:「明日の病院何時だっけ?」「〇〇の予定っていつだったっけ」)。
+  上記の一覧・要約を見ればすぐ答えられる、確認したいだけの質問が対象
+- 服薬の確認、または服薬リマインドへの返答(例:「薬もう飲んだよ」「これから飲む」)
+- 困りごと・SOS的な言い回し(体調が悪い、道に迷った、何かに困っていて助けを求めている等。詐欺や
+  安全に関する定型キーワードとは別に、切迫した様子が読み取れる自由な言い回し全般が対象)
+- 上記に当てはまらない、近況報告や雑談への相槌・意見を求められた場合などは、常にfalseのままにする
 
 【気にかけているテーマ(後述の【継続的に気にかけているテーマ】がある場合のみ関係する)】
 これは伝言とは違い、「ご家族から言われたこと」としてではなく、あなた自身が普段から気にかけていることとして
