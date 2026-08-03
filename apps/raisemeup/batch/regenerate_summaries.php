@@ -7,6 +7,7 @@ require_once __DIR__ . '/../src/ClaudeClient.php';
 require_once __DIR__ . '/../src/SummaryRepository.php';
 require_once __DIR__ . '/../src/ScheduleRepository.php';
 require_once __DIR__ . '/../src/MedicationLogRepository.php';
+require_once __DIR__ . '/../src/ConversationInsightRepository.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Database.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
 
@@ -17,6 +18,7 @@ $pdo = Database::connect($dbConfig);
 $claude = new ClaudeClient(Config::get('ANTHROPIC_API_KEY'), Config::get('CLAUDE_MODEL'));
 $summaryRepo = new SummaryRepository($pdo);
 $medicationLogRepo = new MedicationLogRepository($pdo);
+$insightRepo = new ConversationInsightRepository($pdo);
 
 // --- 0a. 過去の予定をcompletedにする(期間の場合は終了日、単発なら開始日を基準に、今日より前なら完了扱い) ---
 $completedCount = $pdo->exec(
@@ -160,8 +162,9 @@ function regenerateConversationBasedSummary(PDO $pdo, ClaudeClient $claude, Summ
 }
 
 // preference/routineは利用者自身の発言(inbound)だけを見れば十分だが、こちらはAI自身の受け答えの
-// 不自然さを自己レビューする用途なので、inbound/outbound両方を時系列で並べて渡す必要がある
-function regenerateConversationNotesSummary(PDO $pdo, ClaudeClient $claude, SummaryRepository $summaryRepo, int $userId): void
+// 不自然さを自己レビューする用途なので、inbound/outbound両方を時系列で並べて渡す必要がある。
+// あわせて、利用者からの要望・会話中のトラブルをconversation_insightsに運営者向けログとして残す
+function regenerateConversationNotesSummary(PDO $pdo, ClaudeClient $claude, SummaryRepository $summaryRepo, ConversationInsightRepository $insightRepo, int $userId): void
 {
     $type = 'conversation_notes';
     $existing = $summaryRepo->getRawForUser($userId)[$type] ?? null;
@@ -194,13 +197,20 @@ function regenerateConversationNotesSummary(PDO $pdo, ClaudeClient $claude, Summ
         ? "【これまでの自己レビューメモ】\n{$previousContent}\n\n【新しい会話ログ】\n{$newText}"
         : $newText;
 
-    $summary = $claude->summarize($type, $sourceText);
-    if ($summary === '') {
+    $result = $claude->reviewConversation($sourceText);
+    if ($result['self_review'] === '') {
         echo "  [SKIP] {$type} summary: generation failed\n";
         return;
     }
-    $summaryRepo->upsert($userId, $type, $summary, $newMaxId);
+    $summaryRepo->upsert($userId, $type, $result['self_review'], $newMaxId);
     echo "  [OK] {$type} summary updated (through conversation id {$newMaxId})\n";
+
+    foreach ($result['insights'] as $insight) {
+        $insightRepo->insert($userId, $insight['type'], $insight['content'], $newMaxId);
+    }
+    if (!empty($result['insights'])) {
+        echo '  [OK] conversation_insights recorded: ' . count($result['insights']) . "\n";
+    }
 }
 
 // --- 1. アクティブな利用者ごとに5種類の要約を再生成 ---
@@ -213,7 +223,7 @@ foreach ($users as $userId) {
     regenerateRelationshipSummary($pdo, $claude, $summaryRepo, $userId);
     regenerateConversationBasedSummary($pdo, $claude, $summaryRepo, $userId, 'preference');
     regenerateConversationBasedSummary($pdo, $claude, $summaryRepo, $userId, 'routine');
-    regenerateConversationNotesSummary($pdo, $claude, $summaryRepo, $userId);
+    regenerateConversationNotesSummary($pdo, $claude, $summaryRepo, $insightRepo, $userId);
 }
 
 echo "[DONE] summary regeneration complete for " . count($users) . " user(s)\n";

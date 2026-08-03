@@ -278,6 +278,18 @@ return [
         UNIQUE KEY uniq_user_summary_type (user_id, summary_type)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='利用者ごとの要約(予定/人間関係/好み/日常ルーティン)。バッチで定期再生成しリアルタイム会話のプロンプトに注入する';",
 
+    'conversation_insights' => "CREATE TABLE IF NOT EXISTS conversation_insights (
+        id                      BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        user_id                 BIGINT UNSIGNED NOT NULL,
+        insight_type            ENUM('user_request', 'trouble') NOT NULL COMMENT 'user_request=利用者からの要望, trouble=会話中に生じたトラブル・不満・誤解',
+        content                 TEXT NOT NULL,
+        status                  ENUM('new', 'acknowledged') NOT NULL DEFAULT 'new' COMMENT '運営者が確認したかどうか(専用画面は無く手動更新想定)',
+        through_conversation_id BIGINT UNSIGNED DEFAULT NULL COMMENT 'この抽出処理が読んだ会話idの最大値(検出時期の目安)',
+        created_at              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        INDEX idx_user_type_status (user_id, insight_type, status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='会話の自己レビューバッチが検出した、利用者からの要望・会話中のトラブル。運営者が後で確認する用途(SQL参照。専用管理画面は無い)';",
+
     'user_topic_touches' => "CREATE TABLE IF NOT EXISTS user_topic_touches (
         id                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         user_id             BIGINT UNSIGNED NOT NULL,

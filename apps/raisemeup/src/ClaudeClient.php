@@ -931,6 +931,9 @@ PROMPT;
             . '具体的には、同じ話題や似た言い回し・相槌をこの利用者との会話で繰り返し使っていないか、利用者が既に答えたこと'
             . '(頻度・曜日・名前など)を後で再度聞き返していないか、利用者の話や質問に正面から答えずにはぐらかしていないか、'
             . '利用者のトーン(話題への熱量、素っ気なさ等)に合っていない返し方をしていないか、といった観点で確認してください。'
+            . '加えて、利用者から「もっと〇〇してほしい」「〇〇はやめてほしい」のような、あなたの振る舞い方についての明確な要望が'
+            . 'あった場合や、あなたの返信が原因で利用者が困惑・不満を示した場合は、それも踏まえて次回以降どう振る舞うべきか'
+            . 'この自己レビューに反映してください。'
             . '見つかった問題点は、単に「〜しない」と禁止するだけでなく、次回以降この利用者と話す際に具体的にどうすればよいか'
             . '(代わりにどう振る舞うか)まで含めて1〜3件、3〜4文程度の自然な日本語でまとめてください。'
             . '問題点が見当たらなければ「特筆すべき問題は見つかりませんでした。」とだけ答えてください。'
@@ -989,6 +992,85 @@ PROMPT;
 
         $data = json_decode($response, true);
         return trim($data['content'][0]['text'] ?? '');
+    }
+
+    /**
+     * regenerate_summaries.phpのregenerateConversationNotesSummary()専用。summarize('conversation_notes', ...)の代わりに使う。
+     * 自己レビュー文(user_summariesに保存、従来通りプロンプトに注入)に加えて、利用者からの要望・会話中のトラブルを
+     * 運営者向けに構造化ログ(conversation_insightsテーブル)として残すため、1回のAPI呼び出しでJSONを取得する。
+     * @return array{self_review: string, insights: array<array{type: string, content: string}>} 失敗時はself_reviewが空文字・insightsが空配列
+     */
+    public function reviewConversation(string $sourceText): array
+    {
+        $empty = ['self_review' => '', 'insights' => []];
+        if (trim($sourceText) === '') {
+            return $empty;
+        }
+
+        $now = new DateTime('now', new DateTimeZone('Asia/Tokyo'));
+        $weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+        $nowText = $now->format('n月j日') . '(' . $weekdays[(int) $now->format('w')] . ') ' . $now->format('H:i');
+
+        $instruction = self::SUMMARY_INSTRUCTIONS['conversation_notes'];
+        $system = "現在の日時は{$nowText}です。\n\n" . $instruction
+            . "\n\nさらに、上記のself_reviewとは別に、【新しい会話ログ】の部分(【これまでの自己レビューメモ】に既に触れられている"
+            . '内容は重複して含めない)から、以下2種類を運営者向けの記録として抽出してください。'
+            . "\n1. user_request: 利用者からTAYORIというサービス・AIの振る舞いについて明確にあった要望・リクエスト"
+            . "\n2. trouble: 会話中に生じた誤解・噛み合わない受け答え・利用者が示した不満や困惑、その他運営者が把握しておくべきトラブル"
+            . "\nどちらも該当が無ければ空配列でよく、無理に抽出しないでください。各contentは1文程度で簡潔にまとめてください。"
+            . "\n\n出力は必ず以下のJSON形式のみにしてください。前置き・Markdownのコードフェンスは不要です。"
+            . "\n{\"self_review\": \"...\", \"insights\": [{\"type\": \"user_request\" | \"trouble\", \"content\": \"...\"}]}";
+
+        $ch = curl_init('https://api.anthropic.com/v1/messages');
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 20,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'x-api-key: ' . $this->apiKey,
+                'anthropic-version: 2023-06-01',
+            ],
+            CURLOPT_POSTFIELDS => json_encode([
+                'model' => $this->model,
+                'max_tokens' => 800,
+                'system' => $system,
+                'messages' => [['role' => 'user', 'content' => $sourceText]],
+            ], JSON_UNESCAPED_UNICODE),
+        ]);
+        $response = curl_exec($ch);
+        $curlError = curl_error($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($response === false) {
+            error_log("Claude reviewConversation failed: curl error - {$curlError}");
+            return $empty;
+        }
+        if ($httpCode !== 200) {
+            error_log("Claude reviewConversation failed: HTTP {$httpCode} - {$response}");
+            return $empty;
+        }
+
+        $data = json_decode($response, true);
+        $text = $data['content'][0]['text'] ?? '';
+        $parsed = $this->extractJson($text);
+        if ($parsed === null || !isset($parsed['self_review'])) {
+            error_log('Claude reviewConversation: JSON parse failed - ' . substr($text, 0, 1000));
+            return $empty;
+        }
+
+        $insights = [];
+        foreach ((array) ($parsed['insights'] ?? []) as $item) {
+            $type = $item['type'] ?? '';
+            $content = trim((string) ($item['content'] ?? ''));
+            if (in_array($type, ['user_request', 'trouble'], true) && $content !== '') {
+                $insights[] = ['type' => $type, 'content' => $content];
+            }
+        }
+
+        return ['self_review' => trim((string) $parsed['self_review']), 'insights' => $insights];
     }
 
     /**
