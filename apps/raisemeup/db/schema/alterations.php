@@ -134,4 +134,9 @@ return [
     'users.full_name' => "ALTER TABLE users
         ADD COLUMN IF NOT EXISTS full_name VARCHAR(100) DEFAULT NULL
         COMMENT '氏名(管理用表示・ご家族とのやり取りで使用。会話上の呼び名とは別)' AFTER display_name;",
+
+    // TAYORI自身が過去の会話(自分の返信含む)を読み返し、不自然さ・噛み合わなさを自己レビューして
+    // 次回以降の会話に活かすための5つ目の要約種別
+    'user_summaries.conversation_notes' => "ALTER TABLE user_summaries
+        MODIFY COLUMN summary_type ENUM('schedule', 'relationship', 'preference', 'routine', 'conversation_notes') NOT NULL;",
 ];

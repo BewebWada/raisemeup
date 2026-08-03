@@ -1,7 +1,7 @@
 <?php
 class SummaryRepository
 {
-    public const TYPES = ['schedule', 'relationship', 'preference', 'routine'];
+    public const TYPES = ['schedule', 'relationship', 'preference', 'routine', 'conversation_notes'];
 
     private PDO $pdo;
 
