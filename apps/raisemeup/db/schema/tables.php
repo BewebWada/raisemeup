@@ -269,7 +269,7 @@ return [
     'user_summaries' => "CREATE TABLE IF NOT EXISTS user_summaries (
         id                          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         user_id                     BIGINT UNSIGNED NOT NULL,
-        summary_type                ENUM('schedule', 'relationship', 'preference', 'routine') NOT NULL,
+        summary_type                ENUM('schedule', 'relationship', 'preference', 'routine', 'conversation_notes') NOT NULL,
         content                     TEXT NOT NULL,
         source_conversation_max_id  BIGINT UNSIGNED DEFAULT NULL COMMENT 'この要約に反映済みの会話idの最大値(次回再生成の要否判定用)',
         created_at                  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -159,7 +159,51 @@ function regenerateConversationBasedSummary(PDO $pdo, ClaudeClient $claude, Summ
     echo "  [OK] {$type} summary updated (through conversation id {$newMaxId})\n";
 }
 
-// --- 1. アクティブな利用者ごとに4種類の要約を再生成 ---
+// preference/routineは利用者自身の発言(inbound)だけを見れば十分だが、こちらはAI自身の受け答えの
+// 不自然さを自己レビューする用途なので、inbound/outbound両方を時系列で並べて渡す必要がある
+function regenerateConversationNotesSummary(PDO $pdo, ClaudeClient $claude, SummaryRepository $summaryRepo, int $userId): void
+{
+    $type = 'conversation_notes';
+    $existing = $summaryRepo->getRawForUser($userId)[$type] ?? null;
+    $previousContent = $existing['content'] ?? '';
+    $lastMaxId = (int) ($existing['source_conversation_max_id'] ?? 0);
+
+    $stmt = $pdo->prepare(
+        "SELECT id, direction, content FROM conversations
+         WHERE user_id = ? AND id > ? AND content IS NOT NULL
+         ORDER BY id ASC LIMIT 300"
+    );
+    $stmt->execute([$userId, $lastMaxId]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if (empty($rows)) {
+        echo "  [SKIP] {$type} summary: no new conversations since last run\n";
+        return;
+    }
+
+    $newMaxId = $lastMaxId;
+    $newTextParts = [];
+    foreach ($rows as $r) {
+        $label = $r['direction'] === 'outbound' ? '自分' : '利用者';
+        $newTextParts[] = "{$label}: {$r['content']}";
+        $newMaxId = (int) $r['id'];
+    }
+    $newText = implode("\n", $newTextParts);
+
+    $sourceText = $previousContent !== ''
+        ? "【これまでの自己レビューメモ】\n{$previousContent}\n\n【新しい会話ログ】\n{$newText}"
+        : $newText;
+
+    $summary = $claude->summarize($type, $sourceText);
+    if ($summary === '') {
+        echo "  [SKIP] {$type} summary: generation failed\n";
+        return;
+    }
+    $summaryRepo->upsert($userId, $type, $summary, $newMaxId);
+    echo "  [OK] {$type} summary updated (through conversation id {$newMaxId})\n";
+}
+
+// --- 1. アクティブな利用者ごとに5種類の要約を再生成 ---
 $users = $pdo->query("SELECT id FROM users WHERE status = 'active'")->fetchAll(PDO::FETCH_COLUMN);
 
 foreach ($users as $userId) {
@@ -169,6 +213,7 @@ foreach ($users as $userId) {
     regenerateRelationshipSummary($pdo, $claude, $summaryRepo, $userId);
     regenerateConversationBasedSummary($pdo, $claude, $summaryRepo, $userId, 'preference');
     regenerateConversationBasedSummary($pdo, $claude, $summaryRepo, $userId, 'routine');
+    regenerateConversationNotesSummary($pdo, $claude, $summaryRepo, $userId);
 }
 
 echo "[DONE] summary regeneration complete for " . count($users) . " user(s)\n";
