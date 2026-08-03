@@ -369,11 +369,15 @@ function checkUrgentSilenceAndNotify(
             $opening = 'しばらくお返事が無いので、ちょっと心配になっちゃいました。今どちらにいらっしゃるか、教えてもらえますか?';
         }
 
-        $lineClient->push(
-            $row['line_user_id'],
-            $opening . "\n下の「位置情報を送る」ボタンを押すと地図が出てきますので、そのまま画面の「送信」を押してくださいね。",
-            LineClient::LOCATION_QUICK_REPLY
-        );
+        $urgentText = $opening . "\n下の「位置情報を送る」ボタンを押すと地図が出てきますので、そのまま画面の「送信」を押してくださいね。";
+        if ($lineClient->push($row['line_user_id'], $urgentText, LineClient::LOCATION_QUICK_REPLY)) {
+            // conversationsに記録しないと、本人が返信した際にConversationHandler::buildRecentHistory()の
+            // 履歴にこのメッセージが載らず、Claudeが何への返信か分からないまま話が噛み合わなくなる
+            // (例: 直前の雑談の話題を的外れに引きずる)。last_contact_atにも反映されないと、
+            // CHECKIN_WINDOWSの保証チェックインが「まだ会話していない」と誤判定し重複しがちなので、
+            // 他の送信経路(予定リマインド・気まぐれな声かけ)と同様にここでも記録する
+            logOutbound($pdo, $userId, $urgentText);
+        }
 
         $planCode = $subscriptionRepo->getCurrentPlanCodeForUser($userId);
         if (!in_array($planCode, WELLNESS_NOTIFY_PLAN_CODES, true)) {
@@ -509,6 +513,7 @@ function sendMedicationReminders(PDO $pdo, LineClient $lineClient, MedicationLog
             : '「' . implode('』『', $titles) . '』のお薬の時間だよ。飲んだら教えてね。';
 
         if ($lineClient->push($data['line_user_id'], $text)) {
+            logOutbound($pdo, $userId, $text);
             $insertStmt = $pdo->prepare(
                 'INSERT INTO medication_logs (schedule_id, user_id, log_date, reminder_sent_at, status)
                  VALUES (?, ?, CURDATE(), NOW(), "pending")'

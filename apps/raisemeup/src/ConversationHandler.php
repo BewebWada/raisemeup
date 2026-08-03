@@ -56,6 +56,11 @@ class ConversationHandler
     // premium_medicalはfamily_watchの上位互換プランのため合わせて含めている
     private const RISK_NOTIFY_PLAN_CODES = ['family_watch', 'premium_medical'];
 
+    // 緊急扱いではない普通の雑談を遅らせる範囲(秒)。即レスだと機械的な印象になるため、
+    // 「友だちが後で気づいて返信する」程度の自然な間(1〜4分)をランダムに置く
+    private const DELAYED_REPLY_MIN_SECONDS = 60;
+    private const DELAYED_REPLY_MAX_SECONDS = 240;
+
     public function __construct(PDO $pdo, LineClient $lineClient, LineClient $familyLineClient, ClaudeClient $claudeClient)
     {
         $this->pdo = $pdo;
@@ -111,9 +116,17 @@ class ConversationHandler
             return;
         }
 
-        // ②.5 即レスだと機械的な印象になるため、「入力中...」アニメーションを表示しておく。
-        // 実際の一時停止は返信直前(⑦.5)で行うので、ここでは長めの上限を渡しておくだけでよい
-        $this->lineClient->startLoadingAnimation($lineUserId, 20);
+        // ①.5 リスク検知(キーワードマッチングのみ、Claude不要)を前倒しして判定しておく。
+        // 即レスすべきかどうかの最終判定(⑥.5)でも使うほか、ここで検知できていれば
+        // Claudeの応答を待たずに「入力中...」を出せる
+        $earlyRisk = $this->riskDetector->check($userMessage);
+
+        // ②.5 普通の雑談は数分後にゆっくり返す設計にしたため(⑥.5以降を参照)、ここで
+        // 「入力中...」を出すのはリスク検知など即レスが確定している場合のみに限る
+        // (数分後に届く返信のために先にアニメーションだけ出すと、途中で消えて不自然になるため)
+        if ($earlyRisk !== null) {
+            $this->lineClient->startLoadingAnimation($lineUserId, 20);
+        }
 
         // ③ inbound会話を記録(LINEからの重複配信はline_message_idのUNIQUE制約でIGNOREされる)
         $insertStmt = $this->pdo->prepare(
@@ -127,6 +140,12 @@ class ConversationHandler
             return;
         }
         $conversationId = (int) $this->pdo->lastInsertId();
+
+        // ③.6 数分待ちの間に本人が畳みかけて次のメッセージを送ってきた場合、まだ未送信の
+        // pending_replies(普通の雑談として遅延キューに入っている返信)が残っていることがある。
+        // 新しい返信を作る前に古い返信を先に届けておく。こうしないと④のbuildRecentHistoryに
+        // 「本人がまだ受け取っていない返信」が履歴として混ざってしまう
+        $this->flushPendingReplies((int) $user['id']);
 
         // ③.5 直近で「危機感のある」安否確認通知(send_proactive_messages.phpのURGENT_SILENCE_HOURS超過)が
         // 家族に送られていた場合、今回inboundが確認できた時点で「連絡が取れました」の解除連絡を送る。
@@ -242,8 +261,8 @@ class ConversationHandler
             $replyText .= "\n" . $mapsUrl;
         }
 
-        // ⑥ リスク検知(キーワードマッチング)。詐欺だけでなく、健康・安全に関する気になる発言も対象
-        $risk = $this->riskDetector->check($userMessage);
+        // ⑥ リスク検知結果の記録(判定自体は①.5で前倒し済み)。詐欺だけでなく、健康・安全に関する気になる発言も対象
+        $risk = $earlyRisk;
         if ($risk !== null) {
             $this->pdo->prepare(
                 'INSERT INTO risk_events (user_id, conversation_id, risk_pattern_id, matched_keywords, risk_level, status)
@@ -263,17 +282,70 @@ class ConversationHandler
             }
         }
 
-        // ⑦ outbound会話を記録
+        // ⑥.5 即レスすべき内容かどうかを判定する。詐欺・体調・安全のリスク検知/道案内の目的地確定/
+        // Claudeが「即答すべき」と判断した内容(prompt_reply_needed。予定・時間の単純な事実確認・
+        // 服薬確認やリマインドへの返答・困りごとやSOS的な言い回し)のいずれかに該当すれば即レス、
+        // それ以外の普通の雑談は数分後にゆっくり返す(⑦'参照)
+        $isUrgent = ($risk !== null)
+            || ($destination !== '' && in_array($travelMode, ['walking', 'transit', 'driving'], true))
+            || !empty($result['prompt_reply_needed']);
+
+        if ($isUrgent) {
+            // まだ「入力中...」を出していなければ(①.5の時点でリスク未検知だった場合)ここで出す
+            if ($earlyRisk === null) {
+                $this->lineClient->startLoadingAnimation($lineUserId, 20);
+            }
+
+            // ⑦ outbound会話を記録
+            $this->pdo->prepare(
+                'INSERT INTO conversations (user_id, direction, message_type, content, claude_model) VALUES (?, "outbound", "text", ?, ?)'
+            )->execute([$user['id'], $replyText, Config::get('CLAUDE_MODEL')]);
+
+            // ⑦.5 文章の長さに応じて一呼吸置く(即レスの機械的な印象を避けるため)。
+            // replyTokenの有効期限に余裕を持たせるため、上限は控えめにしている
+            usleep($this->typingDelayMicroseconds($replyText));
+
+            // ⑧ LINEへ返信
+            $this->lineClient->reply($replyToken, $replyText);
+            return;
+        }
+
+        // ⑦' 普通の雑談は、即レスだと機械的な印象になるため1〜4分ランダムに置いてから返信する。
+        // replyTokenは長時間保持できないためreply APIは使わず、pending_repliesにキューして
+        // 別バッチ(send_pending_replies.php、cron 1分間隔)にpush API経由での送信を委ねる。
+        // outbound会話の記録も実際の送信時に行う(ここで先に記録すると、待機中に本人が畳みかけて
+        // きた場合の履歴に、まだ届いていない返信が混ざってしまうため)
+        $sendAfterSeconds = random_int(self::DELAYED_REPLY_MIN_SECONDS, self::DELAYED_REPLY_MAX_SECONDS);
         $this->pdo->prepare(
-            'INSERT INTO conversations (user_id, direction, message_type, content, claude_model) VALUES (?, "outbound", "text", ?, ?)'
-        )->execute([$user['id'], $replyText, Config::get('CLAUDE_MODEL')]);
+            'INSERT INTO pending_replies (user_id, line_user_id, reply_text, send_after, claude_model)
+             VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND), ?)'
+        )->execute([$user['id'], $lineUserId, $replyText, $sendAfterSeconds, Config::get('CLAUDE_MODEL')]);
+    }
 
-        // ⑦.5 文章の長さに応じて一呼吸置く(即レスの機械的な印象を避けるため)。
-        // replyTokenの有効期限に余裕を持たせるため、上限は控えめにしている
-        usleep($this->typingDelayMicroseconds($replyText));
+    // 数分待ちの間に本人が畳みかけて次のメッセージを送ってきた場合、未送信のまま残っている
+    // pending_replies行を新しい返信の処理前に先に届けておく(履歴の整合性を保つため)。
+    // send_pending_replies.php(バッチ)と同じ行を二重送信しないよう、statusの排他更新で確保してから送る
+    private function flushPendingReplies(int $userId): void
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id, line_user_id, reply_text, claude_model FROM pending_replies WHERE user_id = ? AND status = "pending" ORDER BY send_after'
+        );
+        $stmt->execute([$userId]);
 
-        // ⑧ LINEへ返信
-        $this->lineClient->reply($replyToken, $replyText);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $claim = $this->pdo->prepare('UPDATE pending_replies SET status = "sending" WHERE id = ? AND status = "pending"');
+            $claim->execute([$row['id']]);
+            if ($claim->rowCount() === 0) {
+                // 既にバッチ側で処理中/処理済み
+                continue;
+            }
+
+            $this->lineClient->push($row['line_user_id'], $row['reply_text']);
+            $this->pdo->prepare(
+                'INSERT INTO conversations (user_id, direction, message_type, content, claude_model) VALUES (?, "outbound", "text", ?, ?)'
+            )->execute([$userId, $row['reply_text'], $row['claude_model']]);
+            $this->pdo->prepare('UPDATE pending_replies SET status = "sent", sent_at = NOW() WHERE id = ?')->execute([$row['id']]);
+        }
     }
 
     /**
