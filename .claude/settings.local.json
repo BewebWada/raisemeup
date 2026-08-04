@@ -250,7 +250,8 @@
       "Bash(touch /var/www/raisemeup.jp/logs/send_pending_replies.log)",
       "Bash(chown --reference=/var/www/raisemeup.jp/logs/check_subscriptions.log /var/www/raisemeup.jp/logs/send_pending_replies.log)",
       "Bash(sudo mariadb raisemeup_staging -e ' *)",
-      "Bash(sudo -u www-data php apps/raisemeup/batch/regenerate_summaries.php)"
+      "Bash(sudo -u www-data php apps/raisemeup/batch/regenerate_summaries.php)",
+      "Read(//root/.ssh/**)"
     ]
   }
 }
