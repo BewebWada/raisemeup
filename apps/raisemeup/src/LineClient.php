@@ -21,11 +21,13 @@ class LineClient
         return hash_equals($hash, $signature);
     }
 
-    public function reply(string $replyToken, string $text): void
+    // $stickerを渡すと、テキストに続けてスタンプメッセージも同じreply呼び出しで送る
+    // (['packageId' => string, 'stickerId' => string]。ClaudeClient::STICKERSの値をそのまま渡せる)
+    public function reply(string $replyToken, string $text, ?array $sticker = null): void
     {
         $payload = [
             'replyToken' => $replyToken,
-            'messages' => [['type' => 'text', 'text' => $text]],
+            'messages' => $this->buildMessages($text, $sticker),
         ];
 
         $ch = curl_init('https://api.line.me/v2/bot/message/reply');
@@ -50,6 +52,23 @@ class LineClient
         } elseif ($httpCode !== 200) {
             error_log("LINE reply failed: HTTP {$httpCode} - {$response}");
         }
+    }
+
+    // reply/pushで共通のmessages配列組み立て。textが空でもstickerだけで送れるようにしてある
+    private function buildMessages(string $text, ?array $sticker, ?array $quickReplyItems = null): array
+    {
+        $messages = [];
+        if (trim($text) !== '') {
+            $textMessage = ['type' => 'text', 'text' => $text];
+            if ($quickReplyItems !== null) {
+                $textMessage['quickReply'] = ['items' => $quickReplyItems];
+            }
+            $messages[] = $textMessage;
+        }
+        if ($sticker !== null) {
+            $messages[] = ['type' => 'sticker', 'packageId' => (string) $sticker['packageId'], 'stickerId' => (string) $sticker['stickerId']];
+        }
+        return $messages;
     }
 
     // ユーザーが送信した画像・動画・音声等のバイナリを取得する。
@@ -145,15 +164,13 @@ class LineClient
 
     // replyTokenを持たない場面(バッチ処理からの通知等)で、こちらから能動的にメッセージを送る場合に使う。
     // $quickReplyItemsを渡すと、メッセージ下にボタンを表示できる(例: 位置情報を1タップで送れるボタン)
-    public function push(string $toLineUserId, string $text, ?array $quickReplyItems = null): bool
+    // $stickerを渡すと、テキストに続けてスタンプメッセージも同じpush呼び出しで送る
+    // (['packageId' => string, 'stickerId' => string]。ClaudeClient::STICKERSの値をそのまま渡せる)
+    public function push(string $toLineUserId, string $text, ?array $quickReplyItems = null, ?array $sticker = null): bool
     {
-        $message = ['type' => 'text', 'text' => $text];
-        if ($quickReplyItems !== null) {
-            $message['quickReply'] = ['items' => $quickReplyItems];
-        }
         $payload = [
             'to' => $toLineUserId,
-            'messages' => [$message],
+            'messages' => $this->buildMessages($text, $sticker, $quickReplyItems),
         ];
 
         $ch = curl_init('https://api.line.me/v2/bot/message/push');

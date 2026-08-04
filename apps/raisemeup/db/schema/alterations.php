@@ -139,4 +139,11 @@ return [
     // 次回以降の会話に活かすための5つ目の要約種別
     'user_summaries.conversation_notes' => "ALTER TABLE user_summaries
         MODIFY COLUMN summary_type ENUM('schedule', 'relationship', 'preference', 'routine', 'conversation_notes') NOT NULL;",
+
+    // Claudeが返信に添えて送るLINEスタンプ(ClaudeClient::STICKERSのキー)を、雑談として遅延キューに
+    // 入れる普通の返信(pending_replies)でも送れるようにする。即レス経路(reply API)は
+    // ConversationHandlerからLineClient::replyに直接渡すためDB保存は不要
+    'pending_replies.sticker' => "ALTER TABLE pending_replies
+        ADD COLUMN IF NOT EXISTS sticker_package_id VARCHAR(20) DEFAULT NULL COMMENT 'LINEスタンプのpackageId(送らない場合はNULL)' AFTER reply_text,
+        ADD COLUMN IF NOT EXISTS sticker_id VARCHAR(20) DEFAULT NULL COMMENT 'LINEスタンプのstickerId(送らない場合はNULL)' AFTER sticker_package_id;",
 ];

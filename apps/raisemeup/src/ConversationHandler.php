@@ -107,11 +107,92 @@ class ConversationHandler
 
     public function handleTextMessage(array $event): void
     {
-        $lineUserId = $event['source']['userId'];
-        $userMessage = $event['message']['text'];
-        $lineMessageId = $event['message']['id'];
-        $replyToken = $event['replyToken'];
+        $this->processIncomingMessage(
+            $event['source']['userId'],
+            $event['message']['text'],
+            $event['message']['id'],
+            $event['replyToken'],
+            'text'
+        );
+    }
 
+    // LINEが返すスタンプのkeywordsは英語のみのため、会話ログ・Claudeへのコンテキストとして扱いやすいよう
+    // よく使われる語だけ日本語に変換する辞書(全網羅ではない)。キーは小文字化して照合し、
+    // 辞書に無い語はtranslateStickerKeyword()で元の英語のまま残す(情報を落とさないため)
+    private const STICKER_KEYWORD_JA = [
+        // 挨拶
+        'hello' => 'こんにちは', 'hi' => 'やあ', 'hey' => 'やあ',
+        'good morning' => 'おはよう', 'good afternoon' => 'こんにちは', 'good evening' => 'こんばんは',
+        'good night' => 'おやすみ', 'goodbye' => 'さようなら', 'bye' => 'バイバイ', 'see you' => 'またね',
+        'welcome' => 'ようこそ', 'nice to meet you' => 'はじめまして',
+        // 肯定・同意・了解
+        'yes' => 'はい', 'no' => 'いいえ', 'ok' => 'オーケー', 'okay' => 'オーケー', 'sure' => 'もちろん',
+        'of course' => 'もちろん', 'got it' => '了解', 'affirmative' => 'はい', 'roger' => '了解',
+        'agreed' => '賛成', 'deal' => '決まり', 'no problem' => '問題ないよ', 'sounds good' => 'いいね',
+        // 感謝・謝罪
+        'thank you' => 'ありがとう', 'thanks' => 'ありがとう', 'sorry' => 'ごめんね', 'my bad' => 'ごめんね',
+        'apologies' => 'ごめんね', 'excuse me' => 'すみません',
+        // 称賛
+        'well done' => 'よくやった', 'good job' => 'よくやった', 'great' => 'すごい', 'awesome' => 'すごい',
+        'amazing' => 'すごい', 'nice' => 'いいね', 'perfect' => '完璧', 'excellent' => '素晴らしい',
+        'congratulations' => 'おめでとう', 'congrats' => 'おめでとう', 'bravo' => 'ブラボー',
+        // 感情
+        'happy' => '嬉しい', 'sad' => '悲しい', 'angry' => '怒ってる', 'surprised' => 'びっくり',
+        'excited' => 'ワクワク', 'love' => '大好き', 'like' => '好き', 'cute' => 'かわいい',
+        'funny' => '面白い', 'laughing' => '笑ってる', 'lol' => '笑', 'crying' => '泣いてる',
+        'worried' => '心配', 'tired' => '疲れた', 'sleepy' => '眠い', 'bored' => '暇', 'shy' => '恥ずかしい',
+        'embarrassed' => '恥ずかしい', 'confused' => '困った', 'scared' => '怖い', 'nervous' => '緊張',
+        'proud' => '誇らしい', 'relieved' => 'ほっとした', 'jealous' => 'うらやましい',
+        // 相槌・驚き
+        'wow' => 'わあ', 'really' => '本当に', 'what' => 'え', 'oh no' => 'あらら', 'haha' => 'はは',
+        'hehe' => 'ふふ', 'yay' => 'やった', 'woohoo' => 'わーい', 'ugh' => 'うーん', 'hmm' => 'んー',
+        'oops' => 'おっと',
+        // 励まし
+        'good luck' => '頑張って', 'cheer up' => '元気出して', "you can do it" => 'できるよ',
+        'fighting' => 'ファイト', "don't worry" => '心配しないで', 'take care' => '気をつけてね',
+        'get well soon' => 'お大事に',
+        // 食事
+        'delicious' => '美味しい', 'yummy' => '美味しい', 'hungry' => 'お腹すいた', "let's eat" => '食べよう',
+        'cheers' => '乾杯',
+        // その他
+        'please' => 'お願い', 'miss you' => '会いたいな', 'hug' => 'ハグ', 'kiss' => 'キス',
+        'high five' => 'ハイタッチ', 'clap' => '拍手', 'applause' => '拍手', 'busy' => '忙しい',
+        'fine' => '元気', "i'm fine" => '元気だよ', 'stop' => 'ストップ', 'wait' => '待って',
+    ];
+
+    private function translateStickerKeyword(string $keyword): string
+    {
+        $normalized = mb_strtolower(trim($keyword));
+        return self::STICKER_KEYWORD_JA[$normalized] ?? $keyword;
+    }
+
+    /**
+     * LINEスタンプが送られてきた場合、通常の会話フローに乗せて自然に反応させる。
+     * スタンプ自体はClaudeに渡せないため、公式スタンプに付与されているkeywords(例:「楽しい」「ありがとう」)を
+     * 「(スタンプを送りました: 楽しい、嬉しい)」のような説明文に変換し、通常のテキストメッセージと同じ
+     * processIncomingMessage()に流す(persons/schedules抽出やリスク検知等の後処理もそのまま共通化するため)。
+     * LINEのkeywordsは英語のみで返るため、translateStickerKeyword()でよく使う語だけ日本語化する
+     * (辞書に無い語はそのまま英語で残す)。keywordsが取れない(カスタム/クリエイターズスタンプ等)場合は、
+     * 種類が分からない旨だけ伝える
+     */
+    public function handleStickerMessage(array $event): void
+    {
+        $keywords = array_map([$this, 'translateStickerKeyword'], $event['message']['keywords'] ?? []);
+        $description = !empty($keywords) ? implode('、', array_slice($keywords, 0, 5)) : '';
+        $userMessage = $description !== '' ? "(スタンプを送りました: {$description})" : '(スタンプを送りました)';
+
+        $this->processIncomingMessage(
+            $event['source']['userId'],
+            $userMessage,
+            $event['message']['id'],
+            $event['replyToken'],
+            'sticker'
+        );
+    }
+
+    // handleTextMessage/handleStickerMessage共通の本体。$messageTypeはconversations.message_typeへの記録に使う
+    private function processIncomingMessage(string $lineUserId, string $userMessage, string $lineMessageId, string $replyToken, string $messageType): void
+    {
         // ① 送信元の判定。利用者本人としてLINE連携済みでなければ、招待コードでの連携や
         //    通知専用の家族アカウントへの対応だけを行い、通常の会話フロー(Claude呼び出し)へは進まない
         $user = $this->userRepo->findByLineUserId($lineUserId);
@@ -134,9 +215,9 @@ class ConversationHandler
 
         // ③ inbound会話を記録(LINEからの重複配信はline_message_idのUNIQUE制約でIGNOREされる)
         $insertStmt = $this->pdo->prepare(
-            'INSERT IGNORE INTO conversations (user_id, line_message_id, direction, message_type, content) VALUES (?, ?, "inbound", "text", ?)'
+            'INSERT IGNORE INTO conversations (user_id, line_message_id, direction, message_type, content) VALUES (?, ?, "inbound", ?, ?)'
         );
-        $insertStmt->execute([$user['id'], $lineMessageId, $userMessage]);
+        $insertStmt->execute([$user['id'], $lineMessageId, $messageType, $userMessage]);
 
         if ($insertStmt->rowCount() === 0) {
             // 既に処理済みのメッセージ(再送)。二重返信・二重処理を避けるためここで終了する
@@ -245,11 +326,17 @@ class ConversationHandler
             $this->userRepo->setDisplayName((int) $user['id'], $learnedDisplayName);
         }
 
+        // ⑤.42 気持ちが乗った場面でだけClaudeが選んだLINEスタンプ(通常はnull)。キーが未知の値だった場合は
+        // 何も送らない(ClaudeClient::STICKERSに無いキーを幻覚で出した場合の安全側フォールバック)
+        $sticker = $this->resolveSticker($result['sticker'] ?? null);
+
         // ⑤.5 要約・正確な一覧だけでは自信を持って答えられないとAIが判断した場合、DBを検索して2ターン目で回答し直す
         $replyText = $result['reply_text'] ?? '';
         $lookup = $result['needs_lookup'] ?? null;
         if (is_array($lookup) && in_array($lookup['type'] ?? null, ['schedule', 'person', 'conversation', 'web'], true) && !empty(trim((string) ($lookup['query'] ?? '')))) {
             $replyText = $this->performLookupAndAnswer((int) $user['id'], $history, $userMessage, $lookup, $companionName);
+            // 検索結果を踏まえた別文面に差し替わるため、元のreply_textに合わせて選ばれたスタンプは使わない
+            $sticker = null;
         }
 
         // ⑤.6 道案内のリクエストで目的地・移動手段の両方が確信を持って絞り込めた場合、
@@ -300,6 +387,11 @@ class ConversationHandler
                 $this->lineClient->startLoadingAnimation($lineUserId, 20);
             }
 
+            // リスク検知された会話では、Claudeの判断ミスで付いていた場合に備えてスタンプは送らない
+            if ($risk !== null) {
+                $sticker = null;
+            }
+
             // ⑦ outbound会話を記録
             $this->pdo->prepare(
                 'INSERT INTO conversations (user_id, direction, message_type, content, claude_model) VALUES (?, "outbound", "text", ?, ?)'
@@ -310,7 +402,7 @@ class ConversationHandler
             usleep($this->typingDelayMicroseconds($replyText));
 
             // ⑧ LINEへ返信
-            $this->lineClient->reply($replyToken, $replyText);
+            $this->lineClient->reply($replyToken, $replyText, $sticker);
             return;
         }
 
@@ -321,9 +413,9 @@ class ConversationHandler
         // きた場合の履歴に、まだ届いていない返信が混ざってしまうため)
         $sendAfterSeconds = random_int(self::DELAYED_REPLY_MIN_SECONDS, self::DELAYED_REPLY_MAX_SECONDS);
         $this->pdo->prepare(
-            'INSERT INTO pending_replies (user_id, line_user_id, reply_text, send_after, claude_model)
-             VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND), ?)'
-        )->execute([$user['id'], $lineUserId, $replyText, $sendAfterSeconds, Config::get('CLAUDE_MODEL')]);
+            'INSERT INTO pending_replies (user_id, line_user_id, reply_text, sticker_package_id, sticker_id, send_after, claude_model)
+             VALUES (?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND), ?)'
+        )->execute([$user['id'], $lineUserId, $replyText, $sticker['packageId'] ?? null, $sticker['stickerId'] ?? null, $sendAfterSeconds, Config::get('CLAUDE_MODEL')]);
     }
 
     // 数分待ちの間に本人が畳みかけて次のメッセージを送ってきた場合、未送信のまま残っている
@@ -332,7 +424,7 @@ class ConversationHandler
     private function flushPendingReplies(int $userId): void
     {
         $stmt = $this->pdo->prepare(
-            'SELECT id, line_user_id, reply_text, claude_model FROM pending_replies WHERE user_id = ? AND status = "pending" ORDER BY send_after'
+            'SELECT id, line_user_id, reply_text, sticker_package_id, sticker_id, claude_model FROM pending_replies WHERE user_id = ? AND status = "pending" ORDER BY send_after'
         );
         $stmt->execute([$userId]);
 
@@ -344,12 +436,25 @@ class ConversationHandler
                 continue;
             }
 
-            $this->lineClient->push($row['line_user_id'], $row['reply_text']);
+            $sticker = $row['sticker_package_id'] !== null && $row['sticker_id'] !== null
+                ? ['packageId' => $row['sticker_package_id'], 'stickerId' => $row['sticker_id']]
+                : null;
+            $this->lineClient->push($row['line_user_id'], $row['reply_text'], null, $sticker);
             $this->pdo->prepare(
                 'INSERT INTO conversations (user_id, direction, message_type, content, claude_model) VALUES (?, "outbound", "text", ?, ?)'
             )->execute([$userId, $row['reply_text'], $row['claude_model']]);
             $this->pdo->prepare('UPDATE pending_replies SET status = "sent", sent_at = NOW() WHERE id = ?')->execute([$row['id']]);
         }
+    }
+
+    // Claudeが返した"sticker"キー(warm/fun/sparkle等)をClaudeClient::STICKERSの実際のpackageId/stickerIdに変換する。
+    // null、または未知のキー(幻覚)の場合は何も送らずnullを返す
+    private function resolveSticker(?string $stickerKey): ?array
+    {
+        if ($stickerKey === null) {
+            return null;
+        }
+        return ClaudeClient::STICKERS[$stickerKey] ?? null;
     }
 
     /**
@@ -663,14 +768,15 @@ class ConversationHandler
         if ($replyText === '') {
             $replyText = 'ありがとう、写真見せてくれて嬉しいな。';
         }
+        $sticker = $this->resolveSticker($result['sticker'] ?? null);
 
         // 写真送信はテキストの雑談と同様、即レスだと機械的な印象になるため数分後にゆっくり返す
         // (⑦'と同じpending_replies経由。outbound会話の記録も実際の送信時に行われる)
         $sendAfterSeconds = random_int(self::DELAYED_REPLY_MIN_SECONDS, self::DELAYED_REPLY_MAX_SECONDS);
         $this->pdo->prepare(
-            'INSERT INTO pending_replies (user_id, line_user_id, reply_text, send_after, claude_model)
-             VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND), ?)'
-        )->execute([$user['id'], $lineUserId, $replyText, $sendAfterSeconds, Config::get('CLAUDE_MODEL')]);
+            'INSERT INTO pending_replies (user_id, line_user_id, reply_text, sticker_package_id, sticker_id, send_after, claude_model)
+             VALUES (?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND), ?)'
+        )->execute([$user['id'], $lineUserId, $replyText, $sticker['packageId'] ?? null, $sticker['stickerId'] ?? null, $sendAfterSeconds, Config::get('CLAUDE_MODEL')]);
     }
 
     /**

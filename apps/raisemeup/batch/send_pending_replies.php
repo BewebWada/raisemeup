@@ -26,7 +26,7 @@ function typingDelayMicroseconds(string $text): int
 }
 
 $stmt = $pdo->prepare(
-    'SELECT id, user_id, line_user_id, reply_text, claude_model FROM pending_replies WHERE status = "pending" AND send_after <= NOW() ORDER BY send_after'
+    'SELECT id, user_id, line_user_id, reply_text, sticker_package_id, sticker_id, claude_model FROM pending_replies WHERE status = "pending" AND send_after <= NOW() ORDER BY send_after'
 );
 $stmt->execute();
 $dueReplies = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -42,7 +42,10 @@ foreach ($dueReplies as $row) {
     $lineClient->startLoadingAnimation($row['line_user_id'], 10);
     usleep(typingDelayMicroseconds($row['reply_text']));
 
-    $sent = $lineClient->push($row['line_user_id'], $row['reply_text']);
+    $sticker = $row['sticker_package_id'] !== null && $row['sticker_id'] !== null
+        ? ['packageId' => $row['sticker_package_id'], 'stickerId' => $row['sticker_id']]
+        : null;
+    $sent = $lineClient->push($row['line_user_id'], $row['reply_text'], null, $sticker);
     if (!$sent) {
         error_log("send_pending_replies: push failed for pending_replies.id={$row['id']}");
     }

@@ -65,6 +65,12 @@ foreach ($events as $event) {
         } catch (Throwable $e) {
             error_log('Webhook file event handling failed: ' . $e->getMessage());
         }
+    } elseif ($event['type'] === 'message' && $event['message']['type'] === 'sticker') {
+        try {
+            $handler->handleStickerMessage($event);
+        } catch (Throwable $e) {
+            error_log('Webhook sticker event handling failed: ' . $e->getMessage());
+        }
     } elseif ($event['type'] === 'follow') {
         try {
             $handler->handleFollowEvent($event);
@@ -72,7 +78,7 @@ foreach ($events as $event) {
             error_log('Webhook follow event handling failed: ' . $e->getMessage());
         }
     }
-    // sticker, audio等は今回スコープ外。ログだけ残すか無視でよい
+    // audio等は今回スコープ外。ログだけ残すか無視でよい
 }
 
 http_response_code(200);
