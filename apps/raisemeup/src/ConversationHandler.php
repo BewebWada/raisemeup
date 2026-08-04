@@ -16,6 +16,7 @@ require_once __DIR__ . '/SubscriptionRepository.php';
 require_once __DIR__ . '/SummaryRepository.php';
 require_once __DIR__ . '/TopicCoverageRepository.php';
 require_once __DIR__ . '/WeatherClient.php';
+require_once __DIR__ . '/ImageProcessor.php';
 
 class ConversationHandler
 {
@@ -60,6 +61,9 @@ class ConversationHandler
     // 「友だちが後で気づいて返信する」程度の自然な間(1〜4分)をランダムに置く
     private const DELAYED_REPLY_MIN_SECONDS = 60;
     private const DELAYED_REPLY_MAX_SECONDS = 240;
+
+    // 1日あたりvisionで内容を認識する写真の上限枚数(暦日リセット)。超えた分は画像を見ずに返信する
+    private const DAILY_IMAGE_RECOGNITION_LIMIT = 3;
 
     public function __construct(PDO $pdo, LineClient $lineClient, LineClient $familyLineClient, ClaudeClient $claudeClient)
     {
@@ -390,6 +394,283 @@ class ConversationHandler
         );
 
         $this->lineClient->reply($replyToken, '教えてくれてありがとうございます。安心しました。');
+    }
+
+    /**
+     * 写真メッセージを処理する。1日3枚まで(暦日リセット)はリサイズしてClaude Visionで内容を認識して
+     * 返信し、それを超えた分は画像を取得・解析せずにテキストのみで自然な返信を生成する(上限超過はコスト面の
+     * 都合であり、利用者には機械的な断り文句に見えないようにする)。画像バイナリはリサイズ・認識後に破棄し、
+     * サーバー上のどこにも保存しない。
+     */
+    public function handleImageMessage(array $event): void
+    {
+        $lineUserId = $event['source']['userId'];
+        $lineMessageId = $event['message']['id'];
+        $replyToken = $event['replyToken'];
+
+        $user = $this->userRepo->findByLineUserId($lineUserId);
+        if ($user === null) {
+            return; // 未連携の送信元からの画像は扱わない(招待コード連携はテキストメッセージのみ対応)
+        }
+
+        // 重複配信ガードを最初に行う(line_message_idのUNIQUE制約)。これを最初に済ませておくことで、
+        // 同じ画像の再送配信によって後述の日次カウントが二重加算されることも防げる
+        $placeholderContent = '(写真を送りました)';
+        $insertStmt = $this->pdo->prepare(
+            'INSERT IGNORE INTO conversations (user_id, line_message_id, direction, message_type, content) VALUES (?, ?, "inbound", "image", ?)'
+        );
+        $insertStmt->execute([$user['id'], $lineMessageId, $placeholderContent]);
+        if ($insertStmt->rowCount() === 0) {
+            error_log("Duplicate LINE image message ignored: {$lineMessageId}");
+            return;
+        }
+        $conversationId = (int) $this->pdo->lastInsertId();
+
+        $this->flushPendingReplies((int) $user['id']);
+        $this->resolveUrgentSilenceIfPending((int) $user['id'], $this->familyFacingName($user));
+
+        $countToday = $this->countImagesRecognizedTodayBefore((int) $user['id'], $conversationId);
+        $context = $this->gatherImageContext($user, $conversationId);
+
+        if ($countToday >= self::DAILY_IMAGE_RECOGNITION_LIMIT) {
+            $this->respondToImageTurn($user, $conversationId, $lineUserId, $context, null, $this->imageLimitReachedNote());
+            return;
+        }
+
+        $content = $this->lineClient->getMessageContent($lineMessageId);
+        $imageBase64 = $content !== null ? ImageProcessor::resizeToJpegBase64($content['binary']) : null;
+
+        if ($imageBase64 === null) {
+            // LINEはimageと申告しているのにデコードできない技術的な失敗(上限超過とは別のケース)。
+            // Claudeは呼ばず、静的なお詫び文言で即レスして無駄なAPI呼び出しを避ける
+            error_log("Image fetch/resize failed for message {$lineMessageId}");
+            $this->replyImageFetchFailure($user, $replyToken);
+            return;
+        }
+
+        $this->respondToImageTurn($user, $conversationId, $lineUserId, $context, $imageBase64, null);
+    }
+
+    // 動画・大容量文書等をダウンロード・デコード試行するだけ無駄なので、この上限を超えるfileメッセージは
+    // 画像判定を試みずに「見られない」応答にする。一般的なスマホ写真は原寸でもこれより十分小さい
+    private const MAX_IMAGE_FILE_BYTES = 20 * 1024 * 1024;
+
+    // 画像として読み取れないファイル添付(文書・動画等)が届いた場合の状況説明。
+    // ClaudeClient::generateImageUnavailableReplyの$situationNoteとして渡す
+    private const FILE_UNVIEWABLE_NOTE = '利用者から写真ではないファイル(文書や動画などの添付ファイル)が送られてきたため、中身を確認することができません。';
+
+    /**
+     * 「ファイルとして送信」されたメッセージ(LINEのクリップ📎アイコン等から送られたもの)を処理する。
+     * スマホの「オリジナル画質で送る」設定等で写真が画像メッセージではなくファイルメッセージとして届く
+     * ケースがあるため、まず画像としてデコードを試み、成功すればhandleImageMessageと全く同じ扱い
+     * (1日3枚の上限にも同じくカウント)にする。デコードできなければ「見られないファイル」として、
+     * 中身を見ずに自然な返信だけ返す(この場合は上限にカウントしない)。
+     */
+    public function handleFileMessage(array $event): void
+    {
+        $lineUserId = $event['source']['userId'];
+        $lineMessageId = $event['message']['id'];
+        $replyToken = $event['replyToken'];
+        $fileName = trim((string) ($event['message']['fileName'] ?? ''));
+        $fileSize = (int) ($event['message']['fileSize'] ?? 0);
+
+        $user = $this->userRepo->findByLineUserId($lineUserId);
+        if ($user === null) {
+            return; // 未連携の送信元からのファイルは扱わない
+        }
+
+        $placeholderContent = $fileName !== '' ? "(ファイルを送りました: {$fileName})" : '(ファイルを送りました)';
+        $insertStmt = $this->pdo->prepare(
+            'INSERT IGNORE INTO conversations (user_id, line_message_id, direction, message_type, content) VALUES (?, ?, "inbound", "other", ?)'
+        );
+        $insertStmt->execute([$user['id'], $lineMessageId, $placeholderContent]);
+        if ($insertStmt->rowCount() === 0) {
+            error_log("Duplicate LINE file message ignored: {$lineMessageId}");
+            return;
+        }
+        $conversationId = (int) $this->pdo->lastInsertId();
+
+        $this->flushPendingReplies((int) $user['id']);
+        $this->resolveUrgentSilenceIfPending((int) $user['id'], $this->familyFacingName($user));
+
+        $context = $this->gatherImageContext($user, $conversationId);
+
+        if ($fileSize > self::MAX_IMAGE_FILE_BYTES) {
+            $this->respondToImageTurn($user, $conversationId, $lineUserId, $context, null, self::FILE_UNVIEWABLE_NOTE);
+            return;
+        }
+
+        $content = $this->lineClient->getMessageContent($lineMessageId);
+        if ($content === null) {
+            error_log("File fetch failed for message {$lineMessageId}");
+            $this->replyImageFetchFailure($user, $replyToken);
+            return;
+        }
+
+        $imageBase64 = ImageProcessor::resizeToJpegBase64($content['binary']);
+        if ($imageBase64 === null) {
+            // 画像として読み取れないファイル(文書・動画等)。1日の認識上限にはカウントしない
+            $this->respondToImageTurn($user, $conversationId, $lineUserId, $context, null, self::FILE_UNVIEWABLE_NOTE);
+            return;
+        }
+
+        // 画像として読み取れた場合は、写真アイコンから送られた画像と同じ扱いにする
+        // (message_typeを"image"に統一し、1日の上限にも同じくカウントする)
+        $this->pdo->prepare('UPDATE conversations SET message_type = "image" WHERE id = ?')->execute([$conversationId]);
+        $countToday = $this->countImagesRecognizedTodayBefore((int) $user['id'], $conversationId);
+
+        if ($countToday >= self::DAILY_IMAGE_RECOGNITION_LIMIT) {
+            $this->respondToImageTurn($user, $conversationId, $lineUserId, $context, null, $this->imageLimitReachedNote());
+            return;
+        }
+
+        $this->respondToImageTurn($user, $conversationId, $lineUserId, $context, $imageBase64, null);
+    }
+
+    // 画像取得・デコードのAPI/ネットワーク的な失敗時の定型応答。上限超過やファイル種別判定とは別の
+    // 「技術的な失敗」ケースなので、Claudeは呼ばず即レスでコストをかけない
+    private function replyImageFetchFailure(array $user, string $replyToken): void
+    {
+        $replyText = 'ごめんね、うまく受け取れなかったみたい。もう一度送ってもらえるかな?';
+        $this->lineClient->reply($replyToken, $replyText);
+        $this->pdo->prepare(
+            'INSERT INTO conversations (user_id, direction, message_type, content) VALUES (?, "outbound", "text", ?)'
+        )->execute([$user['id'], $replyText]);
+    }
+
+    // 本日、$beforeConversationIdより前に届いた「認識対象になった画像」の枚数(暦日リセット)。
+    // handleImageMessage/handleFileMessageの両方から、写真と判定した後の上限チェックに使う
+    private function countImagesRecognizedTodayBefore(int $userId, int $beforeConversationId): int
+    {
+        $countStmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM conversations WHERE user_id = ? AND direction = "inbound" AND message_type = "image" AND DATE(created_at) = CURDATE() AND id < ?'
+        );
+        $countStmt->execute([$userId, $beforeConversationId]);
+        return (int) $countStmt->fetchColumn();
+    }
+
+    private function imageLimitReachedNote(): string
+    {
+        return '利用者から写真が送られてきましたが、本日はすでに' . self::DAILY_IMAGE_RECOGNITION_LIMIT
+            . '枚分の写真を確認済みのため、システムの都合でこの写真の中身は見ることができません。';
+    }
+
+    // handleImageMessage/handleFileMessageで共通に使う、Claude呼び出し前のコンテキスト一式の収集。
+    // handleTextMessageの④で集めている内容とほぼ同じもの(画像用に切り出した版)
+    private function gatherImageContext(array $user, int $conversationId): array
+    {
+        return [
+            'history' => $this->buildRecentHistory((int) $user['id'], $conversationId),
+            'knownPersons' => $this->personRepo->getNamesByUserId((int) $user['id'], 30),
+            'knownSchedules' => $this->scheduleRepo->getUpcomingDetailsByUserId((int) $user['id'], 15),
+            'summaries' => $this->summaryRepo->getAllForUser((int) $user['id']),
+            'topicCoverage' => $this->topicCoverageRepo->getAllForUser((int) $user['id']),
+            'personaFacts' => $this->ensureCompanionPersona($user),
+            'companionName' => $user['companion_name'] ?: 'たより',
+            'weatherSummary' => $this->getWeatherSummaryForAddress((string) $user['address']),
+            'pendingFamilyMessages' => $this->familyMessageRepo->getPendingForUser((int) $user['id']),
+            'activeThemes' => $this->familyThemeRepo->getActiveForUser((int) $user['id']),
+            'medicationStatusToday' => $this->getMedicationStatusTodaySafe((int) $user['id']),
+        ];
+    }
+
+    private function getMedicationStatusTodaySafe(int $userId): array
+    {
+        try {
+            return $this->medicationLogRepo->getTodayStatusForUser($userId);
+        } catch (Throwable $e) {
+            error_log('MedicationLogRepository::getTodayStatusForUser failed: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * 画像を認識できた場合($imageBase64を渡す)、または見せられない事情がある場合($unavailableReasonを渡す。
+     * 上限超過・画像として読み取れないファイル等)のいずれかでClaudeを呼び、共通の後処理
+     * (人物・予定のUPSERT、服薬確認、話題カバレッジ、quiet_hours、pending_replies経由の返信キュー)を行う。
+     * $imageBase64と$unavailableReasonはどちらか一方だけを渡すこと。
+     */
+    private function respondToImageTurn(array $user, int $conversationId, string $lineUserId, array $context, ?string $imageBase64, ?string $unavailableReason): void
+    {
+        if ($imageBase64 !== null) {
+            $result = $this->claudeClient->generateImageReply(
+                $context['history'],
+                $imageBase64,
+                '',
+                $context['knownPersons'],
+                $context['knownSchedules'],
+                $context['summaries'],
+                $context['companionName'],
+                (string) $user['display_name'],
+                $user['gender'],
+                (string) $user['address'],
+                $context['weatherSummary'],
+                $context['pendingFamilyMessages'],
+                $context['activeThemes'],
+                $context['medicationStatusToday'],
+                $context['topicCoverage'],
+                $context['personaFacts']
+            );
+        } else {
+            $result = $this->claudeClient->generateImageUnavailableReply(
+                (string) $unavailableReason,
+                $context['history'],
+                $context['knownPersons'],
+                $context['knownSchedules'],
+                $context['summaries'],
+                $context['companionName'],
+                (string) $user['display_name'],
+                $user['gender'],
+                (string) $user['address'],
+                $context['weatherSummary'],
+                $context['pendingFamilyMessages'],
+                $context['activeThemes'],
+                $context['medicationStatusToday'],
+                $context['topicCoverage'],
+                $context['personaFacts']
+            );
+        }
+
+        if (!empty($context['pendingFamilyMessages']) && !empty($result['family_message_delivered'])) {
+            $this->familyMessageRepo->markDelivered(array_column($context['pendingFamilyMessages'], 'id'));
+            $this->notifyFamilyOfMessageDelivered((int) $user['id'], $this->familyFacingName($user));
+        }
+
+        foreach ($result['persons'] ?? [] as $person) {
+            $this->personRepo->upsert((int) $user['id'], $person, $conversationId);
+        }
+        foreach ($result['schedules'] ?? [] as $schedule) {
+            $this->scheduleRepo->upsert((int) $user['id'], $schedule, $conversationId);
+        }
+        foreach ($result['medication_confirmed'] ?? [] as $medicationTitle) {
+            $medicationTitle = trim((string) $medicationTitle);
+            if ($medicationTitle !== '') {
+                try {
+                    $this->medicationLogRepo->markTaken((int) $user['id'], $medicationTitle);
+                } catch (Throwable $e) {
+                    error_log('MedicationLogRepository::markTaken failed: ' . $e->getMessage());
+                }
+            }
+        }
+        $this->topicCoverageRepo->touch((int) $user['id'], $result['topics_touched'] ?? []);
+
+        $quietHours = $result['quiet_hours'] ?? null;
+        if (is_array($quietHours) && array_key_exists('start', $quietHours) && array_key_exists('end', $quietHours)) {
+            $this->userRepo->updateQuietHours((int) $user['id'], $quietHours['start'] ?: null, $quietHours['end'] ?: null);
+        }
+
+        $replyText = trim((string) ($result['reply_text'] ?? ''));
+        if ($replyText === '') {
+            $replyText = 'ありがとう、写真見せてくれて嬉しいな。';
+        }
+
+        // 写真送信はテキストの雑談と同様、即レスだと機械的な印象になるため数分後にゆっくり返す
+        // (⑦'と同じpending_replies経由。outbound会話の記録も実際の送信時に行われる)
+        $sendAfterSeconds = random_int(self::DELAYED_REPLY_MIN_SECONDS, self::DELAYED_REPLY_MAX_SECONDS);
+        $this->pdo->prepare(
+            'INSERT INTO pending_replies (user_id, line_user_id, reply_text, send_after, claude_model)
+             VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND), ?)'
+        )->execute([$user['id'], $lineUserId, $replyText, $sendAfterSeconds, Config::get('CLAUDE_MODEL')]);
     }
 
     /**

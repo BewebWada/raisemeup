@@ -53,6 +53,18 @@ foreach ($events as $event) {
         } catch (Throwable $e) {
             error_log('Webhook location event handling failed: ' . $e->getMessage());
         }
+    } elseif ($event['type'] === 'message' && $event['message']['type'] === 'image') {
+        try {
+            $handler->handleImageMessage($event);
+        } catch (Throwable $e) {
+            error_log('Webhook image event handling failed: ' . $e->getMessage());
+        }
+    } elseif ($event['type'] === 'message' && $event['message']['type'] === 'file') {
+        try {
+            $handler->handleFileMessage($event);
+        } catch (Throwable $e) {
+            error_log('Webhook file event handling failed: ' . $e->getMessage());
+        }
     } elseif ($event['type'] === 'follow') {
         try {
             $handler->handleFollowEvent($event);
@@ -60,7 +72,7 @@ foreach ($events as $event) {
             error_log('Webhook follow event handling failed: ' . $e->getMessage());
         }
     }
-    // sticker, image等は今回スコープ外。ログだけ残すか無視でよい
+    // sticker, audio等は今回スコープ外。ログだけ残すか無視でよい
 }
 
 http_response_code(200);

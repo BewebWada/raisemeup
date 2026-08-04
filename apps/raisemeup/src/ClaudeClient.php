@@ -84,6 +84,75 @@ PROMPT;
         return $this->fallback();
     }
 
+    /**
+     * 写真1枚をvisionで認識し、通常の会話と同じJSON契約(reply_text/persons/schedules等)で返信を生成する。
+     * 引数はgenerateReplyAndExtractとほぼ同じ(userMessageの代わりにimageBase64/caption)。
+     * $imageBase64はリサイズ済みJPEG(ImageProcessor::resizeToJpegBase64の戻り値)を想定し、media_typeは
+     * image/jpeg固定でよい。画像の中身を見せられない事情がある場合(1日の認識上限超過、画像として
+     * 読み取れないファイル等)はこちらではなくgenerateImageUnavailableReplyを使う。
+     */
+    public function generateImageReply(array $conversationHistory, string $imageBase64, string $caption, array $knownPersons, array $knownSchedules, array $summaries, string $companionName, string $userDisplayName, ?string $userGender = null, string $userAddress = '', string $weatherSummary = '', array $pendingFamilyMessages = [], array $activeThemes = [], array $medicationStatusToday = [], array $topicCoverage = [], array $personaFacts = []): array
+    {
+        $systemPrompt = $this->buildSystemPrompt($knownPersons, $knownSchedules, $summaries, $companionName, $userDisplayName, $userGender, $userAddress, $weatherSummary, $pendingFamilyMessages, $activeThemes, $medicationStatusToday, $topicCoverage, $personaFacts);
+
+        $messages = $conversationHistory;
+        $messages[] = [
+            'role' => 'user',
+            'content' => [
+                ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => 'image/jpeg', 'data' => $imageBase64]],
+                ['type' => 'text', 'text' => $caption !== '' ? $caption : '(写真を送りました)'],
+            ],
+        ];
+
+        for ($attempt = 1; $attempt <= 2; $attempt++) {
+            $parsed = $this->callAndParse($systemPrompt, $messages, $attempt);
+            if ($parsed !== null) {
+                return $parsed;
+            }
+        }
+
+        error_log('Claude API: 画像認識応答のパースに2回とも失敗したためフォールバック応答を返します');
+        return $this->fallback();
+    }
+
+    /**
+     * 写真(または写真として送られてきたファイル)の中身を見せられない事情がある場合の応答。
+     * 画像は一切Claudeに渡さず、テキストのみで「見られなかったこと」を自然な調子で伝える返信を生成する
+     * (persons/schedulesは抽出しない)。事情の説明文だけを$situationNoteで差し替え可能にしてあり、
+     * 1日の認識上限超過(handleImageMessage)・画像として読み取れないファイル添付(handleFileMessage)の
+     * 両方から共通で使う。buildSystemPromptに追加指示ブロックを1つ足すだけで、通常のトーン・ガードレールは
+     * そのまま踏襲する。
+     * @param string $situationNote 「利用者から〜が送られてきましたが、〜ため、この写真の中身は見ることができません。」の
+     *   「〜」部分にあたる、状況を説明する文(句点で終わる完全な文にすること)
+     */
+    public function generateImageUnavailableReply(string $situationNote, array $conversationHistory, array $knownPersons, array $knownSchedules, array $summaries, string $companionName, string $userDisplayName, ?string $userGender = null, string $userAddress = '', string $weatherSummary = '', array $pendingFamilyMessages = [], array $activeThemes = [], array $medicationStatusToday = [], array $topicCoverage = [], array $personaFacts = []): array
+    {
+        $systemPrompt = $this->buildSystemPrompt($knownPersons, $knownSchedules, $summaries, $companionName, $userDisplayName, $userGender, $userAddress, $weatherSummary, $pendingFamilyMessages, $activeThemes, $medicationStatusToday, $topicCoverage, $personaFacts);
+        $systemPrompt[] = [
+            'type' => 'text',
+            'text' => "【今回の特別な状況】{$situationNote} 写真そのものは見ずに、reply_textでは"
+                . '「見られなかった」ことを、ただ断るだけの機械的な返信にせず、友達らしい温かさに加えて'
+                . '軽いユーモアもひとこと添えて、くすっと笑えるような伝え方にしてください'
+                . '(例:「今日はもう写真をお腹いっぱい見せてもらったから、しばらく写真断食中なんだ。また今度見せてね」'
+                . 'のように、ただの断り文句で終わらせないこと。ただし茶化しすぎて中身への興味が無いように'
+                . '聞こえないよう、温かさを忘れないこと)。'
+                . 'personsとschedulesは抽出せず、必ず空配列にしてください。',
+        ];
+
+        $messages = $conversationHistory;
+        $messages[] = ['role' => 'user', 'content' => '(写真を送信しました)'];
+
+        for ($attempt = 1; $attempt <= 2; $attempt++) {
+            $parsed = $this->callAndParse($systemPrompt, $messages, $attempt);
+            if ($parsed !== null) {
+                return $parsed;
+            }
+        }
+
+        error_log('Claude API: 画像を見せられない旨の応答のパースに2回とも失敗したためフォールバック応答を返します');
+        return $this->fallback();
+    }
+
     // $systemPromptはbuildSystemPromptが返す2ブロック配列(静的+動的、静的側にcache_control付き)。
     // そのままjson_encodeに渡すだけでAPIが期待する配列形式のsystemフィールドになる
     private function callAndParse(array $systemPrompt, array $messages, int $attempt): ?array

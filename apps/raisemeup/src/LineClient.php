@@ -52,6 +52,34 @@ class LineClient
         }
     }
 
+    // ユーザーが送信した画像・動画・音声等のバイナリを取得する。
+    // 通常のLINE API(api.line.me)とはホストが異なる点に注意(api-data.line.me)
+    public function getMessageContent(string $messageId): ?array
+    {
+        $ch = curl_init('https://api-data.line.me/v2/bot/message/' . urlencode($messageId) . '/content');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $this->accessToken],
+        ]);
+        $response = curl_exec($ch);
+        $curlError = curl_error($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+        curl_close($ch);
+
+        if ($response === false) {
+            error_log("LINE getMessageContent failed: curl error - {$curlError}");
+            return null;
+        }
+        if ($httpCode !== 200) {
+            error_log("LINE getMessageContent failed: HTTP {$httpCode}");
+            return null;
+        }
+        return ['binary' => $response, 'content_type' => $contentType ?: 'application/octet-stream'];
+    }
+
     // 返信までの「入力中...」アニメーションを表示する(即レスだと機械的な印象になるため)。
     // secondsは5刻み(5〜60)である必要があるので丸める。実際のreply送信で自動的に消えるので、
     // ここでの秒数はあくまで「最大でもこれくらいで消える」という上限として渡している
