@@ -127,9 +127,11 @@ function regenerateConversationBasedSummary(PDO $pdo, ClaudeClient $claude, Summ
     $previousContent = $existing['content'] ?? '';
     $lastMaxId = (int) ($existing['source_conversation_max_id'] ?? 0);
 
+    // AI側の質問文(outbound)も含めて渡す。利用者の発言だけを切り出すと、何の質問に対する返答かという
+    // 文脈が失われ、代名詞の指示先などをAIが誤って断定してしまうことがあるため(例:「ここ」が指す場所の誤読)。
     $stmt = $pdo->prepare(
-        "SELECT id, content FROM conversations
-         WHERE user_id = ? AND direction = 'inbound' AND id > ? AND content IS NOT NULL
+        "SELECT id, direction, content FROM conversations
+         WHERE user_id = ? AND id > ? AND content IS NOT NULL
          ORDER BY id ASC LIMIT 300"
     );
     $stmt->execute([$userId, $lastMaxId]);
@@ -143,7 +145,8 @@ function regenerateConversationBasedSummary(PDO $pdo, ClaudeClient $claude, Summ
     $newMaxId = $lastMaxId;
     $newTextParts = [];
     foreach ($rows as $r) {
-        $newTextParts[] = $r['content'];
+        $label = $r['direction'] === 'outbound' ? '自分' : '利用者';
+        $newTextParts[] = "{$label}: {$r['content']}";
         $newMaxId = (int) $r['id'];
     }
     $newText = implode("\n", $newTextParts);
