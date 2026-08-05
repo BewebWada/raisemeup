@@ -77,6 +77,12 @@ foreach ($events as $event) {
         } catch (Throwable $e) {
             error_log('Webhook follow event handling failed: ' . $e->getMessage());
         }
+    } elseif ($event['type'] === 'unfollow') {
+        try {
+            $handler->handleUnfollowEvent($event);
+        } catch (Throwable $e) {
+            error_log('Webhook unfollow event handling failed: ' . $e->getMessage());
+        }
     }
     // audio等は今回スコープ外。ログだけ残すか無視でよい
 }

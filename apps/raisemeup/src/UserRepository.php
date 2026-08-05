@@ -105,11 +105,30 @@ class UserRepository
         )->execute([$lineUserId, $id]);
     }
 
-    // 友だち追加(またはメッセージ到達=友だち確定)が確認できて初めて呼ぶ。ここで初めて本当の意味でオンボード完了とする
+    // 友だち追加(またはメッセージ到達=友だち確定)が確認できて初めて呼ぶ。ここで初めて本当の意味でオンボード完了とする。
+    // friend_confirmed_atも同時にセットする(ブロック後の再確認はreconfirmFriend()を使う)
     public function markOnboarded(int $id): void
     {
         $this->pdo->prepare(
-            "UPDATE users SET status = 'active', onboarded_at = NOW() WHERE id = ?"
+            "UPDATE users SET status = 'active', onboarded_at = NOW(), friend_confirmed_at = NOW() WHERE id = ?"
+        )->execute([$id]);
+    }
+
+    // 既にオンボード済み(status='active')の利用者が、ブロック後に再度友だち追加した場合に呼ぶ軽量版。
+    // markOnboardedと違いstatus/onboarded_atには触れない(初回オンボード相当の重い処理は伴わない)
+    public function reconfirmFriend(int $id): void
+    {
+        $this->pdo->prepare(
+            'UPDATE users SET friend_confirmed_at = NOW() WHERE id = ?'
+        )->execute([$id]);
+    }
+
+    // LINE公式アカウントをブロック(unfollowイベント)された際に呼ぶ。statusには触れない
+    // (放置判定など他ロジックへの副作用を避けるため、友だち追加確認の状態だけを戻す)
+    public function clearFriendConfirmation(int $id): void
+    {
+        $this->pdo->prepare(
+            'UPDATE users SET friend_confirmed_at = NULL WHERE id = ?'
         )->execute([$id]);
     }
 

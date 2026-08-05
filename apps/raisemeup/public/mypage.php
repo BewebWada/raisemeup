@@ -7,6 +7,8 @@ require_once __DIR__ . '/../src/SummaryRepository.php';
 require_once __DIR__ . '/../src/RiskEventRepository.php';
 require_once __DIR__ . '/../src/FamilyThemeRepository.php';
 require_once __DIR__ . '/../src/LineLoginClient.php';
+require_once __DIR__ . '/../src/LineClient.php';
+require_once __DIR__ . '/../src/FriendConfirmationService.php';
 require_once __DIR__ . '/../src/Layout.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Database.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
@@ -77,6 +79,7 @@ $errors = [];
 $savedFamily = false;
 $savedUserId = 0;
 $themeSavedUserId = 0;
+$friendCheckedUserId = 0;
 // タブ切り替え(CSSのみ)後の再表示で、保存/追加した内容が見えているタブをそのまま維持するための着地先
 $activeTab = 'family';
 
@@ -186,6 +189,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $savedUserId = $userId;
             }
         }
+    } elseif ($action === 'check_friend_family') {
+        $activeTab = 'family';
+
+        if ($family['line_user_id'] === null) {
+            $errors[] = '不正な操作です。';
+        } elseif ($family['friend_confirmed_at'] === null) {
+            $familyLineClient = new LineClient(Config::get('LINE_FAMILY_CHANNEL_SECRET'), Config::get('LINE_FAMILY_CHANNEL_ACCESS_TOKEN'));
+            if ($familyLineClient->getProfile($family['line_user_id']) !== null) {
+                FriendConfirmationService::confirmFamily($familyRepo, $familyLineClient, $family);
+                $family = $familyRepo->find((int) $family['id']);
+                $savedFamily = true;
+            } else {
+                $errors[] = '友だち追加がまだ確認できませんでした。「TAYORIサポート」を友だち追加のうえ、もう一度お試しください。';
+            }
+        }
+    } elseif ($action === 'check_friend_user') {
+        $checkUserId = (int) ($_POST['user_id'] ?? 0);
+        $activeTab = 'user-' . $checkUserId;
+
+        if (!in_array($checkUserId, $ownedUserIds, true)) {
+            $errors[] = '不正な操作です。';
+        } else {
+            $checkUser = $userRepo->find($checkUserId);
+            if ($checkUser === null || $checkUser['line_user_id'] === null) {
+                $errors[] = '不正な操作です。';
+            } elseif ($checkUser['friend_confirmed_at'] === null) {
+                $userLineClient = new LineClient(Config::get('LINE_CHANNEL_SECRET'), Config::get('LINE_CHANNEL_ACCESS_TOKEN'));
+                if ($userLineClient->getProfile($checkUser['line_user_id']) !== null) {
+                    if ($checkUser['status'] === 'pending') {
+                        FriendConfirmationService::confirmUser($pdo, $userRepo, $userLineClient, $checkUser);
+                    } else {
+                        FriendConfirmationService::reconnectUser($userRepo, $userLineClient, $checkUser);
+                    }
+                    $friendCheckedUserId = $checkUserId;
+                } else {
+                    $errors[] = '友だち追加がまだ確認できませんでした。ご本人に友だち追加をお願いのうえ、もう一度お試しください。';
+                }
+            }
+        }
     }
 }
 
@@ -209,6 +251,7 @@ $talkCountStmt = $pdo->prepare(
 // マイページからも連携用URLをコピーして送り直せるようにする
 $baseUrl = rtrim(Config::get('APP_BASE_URL', ''), '/');
 $addFriendUrl = Config::get('LINE_ADD_FRIEND_URL', '');
+$familyAddFriendUrl = Config::get('LINE_FAMILY_ADD_FRIEND_URL', '');
 
 $panels = [];
 foreach ($linkedUsers as $u) {
@@ -236,7 +279,7 @@ foreach ($linkedUsers as $u) {
         'todayTalkCount' => (int) $talkCountStmt->fetchColumn(),
         'themes' => $familyThemeRepo->getActiveForUser((int) $u['id']),
         'userLineLinked' => $userLineLinked,
-        'userFriendConfirmed' => $u['status'] !== 'pending',
+        'userFriendConfirmed' => $u['status'] !== 'pending' && $u['friend_confirmed_at'] !== null,
         'userLoginUrl' => $userLoginUrl,
         'addFriendUrl' => $addFriendUrl,
     ];
@@ -248,7 +291,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST' && !empty($panels)) {
     $activeTab = 'user-' . (int) $panels[0]['user']['id'];
 }
 
-renderMypage($family, $panels, $errors, $savedFamily, $savedUserId, $themeSavedUserId, $activeTab);
+renderMypage($family, $panels, $errors, $savedFamily, $savedUserId, $themeSavedUserId, $friendCheckedUserId, $activeTab, $familyAddFriendUrl);
 
 function renderLoginScreen(string $loginError): void
 {
@@ -279,7 +322,7 @@ function renderLoginScreen(string $loginError): void
 /**
  * @param array<int, array{user: array, subscription: ?array, summaries: array, riskEvents: array, todayTalkCount: int, themes: array}> $panels
  */
-function renderMypage(array $family, array $panels, array $errors, bool $savedFamily, int $savedUserId, int $themeSavedUserId, string $activeTab): void
+function renderMypage(array $family, array $panels, array $errors, bool $savedFamily, int $savedUserId, int $themeSavedUserId, int $friendCheckedUserId, string $activeTab, string $familyAddFriendUrl): void
 {
     Layout::renderHeader('mypage', 'マイページ');
 
@@ -399,12 +442,12 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
 
 <div class="mp-panels">
   <div class="mp-panel" id="mp-panel-0">
-    <?php renderFamilyPanel($family, $savedFamily); ?>
+    <?php renderFamilyPanel($family, $savedFamily, $familyAddFriendUrl); ?>
   </div>
 
   <?php foreach ($panels as $i => $panel): ?>
     <div class="mp-panel" id="mp-panel-<?= $i + 1 ?>">
-      <?php renderUserPanel($panel, $family, $savedUserId, $themeSavedUserId); ?>
+      <?php renderUserPanel($panel, $family, $savedUserId, $themeSavedUserId, $friendCheckedUserId); ?>
     </div>
   <?php endforeach; ?>
 </div>
@@ -440,12 +483,40 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
     Layout::renderFooter();
 }
 
-function renderFamilyPanel(array $family, bool $savedFamily): void
+function renderFamilyPanel(array $family, bool $savedFamily, string $familyAddFriendUrl): void
 {
+    $familyFriendConfirmed = $family['line_user_id'] !== null && $family['friend_confirmed_at'] !== null;
+    $familyFriendBroken = $family['line_user_id'] !== null && $family['friend_confirmed_at'] === null;
     ?>
   <?php if ($savedFamily): ?>
     <div class="notice">登録情報を更新しました。</div>
   <?php endif; ?>
+
+  <div class="card">
+    <h2><?= Layout::icon('chat') ?> 「TAYORIサポート」との連携</h2>
+    <?php if ($familyFriendConfirmed): ?>
+      <dl class="status-box">
+        <dt>連携状況</dt>
+        <dd>連携済み</dd>
+      </dl>
+      <p class="empty-hint">無料期間の終了案内や、気になる会話の検知結果は、こちらの「TAYORIサポート」からお届けします。</p>
+    <?php elseif ($familyFriendBroken): ?>
+      <p class="empty-hint" style="color:#a12a1f;">「TAYORIサポート」の友だち追加が確認できていません(ブロック等により、お支払いのご案内や見守りの通知が届かなくなっている可能性があります)。下記から友だち追加のうえ、確認ボタンを押してください。</p>
+      <?php if ($familyAddFriendUrl !== ''): ?>
+        <a class="mp-btn" href="<?= h($familyAddFriendUrl) ?>"><?= Layout::icon('chat') ?> 「TAYORIサポート」を友だち追加する</a>
+        <div class="qr-box">
+          <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=<?= urlencode($familyAddFriendUrl) ?>" alt="友だち追加QRコード" width="160" height="160">
+        </div>
+      <?php endif; ?>
+      <form method="post" action="/mypage/">
+        <input type="hidden" name="csrf_token" value="<?= h($_SESSION['mypage_csrf_token']) ?>">
+        <input type="hidden" name="action" value="check_friend_family">
+        <button type="submit"><?= Layout::icon('check') ?> 今すぐ確認する</button>
+      </form>
+    <?php else: ?>
+      <p class="empty-hint">「TAYORIサポート」との連携が完了していません。お申込み時にご案内したLINE連携をお済ませください。</p>
+    <?php endif; ?>
+  </div>
 
   <div class="card">
     <h2><?= Layout::icon('edit') ?> お申込者様(ご家族)について</h2>
@@ -481,7 +552,7 @@ function renderFamilyPanel(array $family, bool $savedFamily): void
     <?php
 }
 
-function renderUserPanel(array $panel, array $family, int $savedUserId, int $themeSavedUserId): void
+function renderUserPanel(array $panel, array $family, int $savedUserId, int $themeSavedUserId, int $friendCheckedUserId): void
 {
     $u = $panel['user'];
     $sub = $panel['subscription'];
@@ -493,6 +564,9 @@ function renderUserPanel(array $panel, array $family, int $savedUserId, int $the
   <?php endif; ?>
   <?php if ($themeSavedUserId === $userId): ?>
     <div class="notice">テーマを設定しました。</div>
+  <?php endif; ?>
+  <?php if ($friendCheckedUserId === $userId): ?>
+    <div class="notice">友だち追加を確認しました。</div>
   <?php endif; ?>
 
   <div class="card">
@@ -524,7 +598,19 @@ function renderUserPanel(array $panel, array $family, int $savedUserId, int $the
         <dd>連携済み</dd>
       </dl>
     <?php elseif ($panel['userLineLinked']): ?>
-      <p class="empty-hint">LINEログインは完了していますが、友だち追加がまだ確認できていません。ご本人に公式アカウントの友だち追加をお願いしてください。</p>
+      <p class="empty-hint" style="color:#a12a1f;">LINEログインは完了していますが、友だち追加が確認できていません(ブロック等により、ご家族への見守り通知が届かなくなっている可能性があります)。ご本人に公式アカウントの友だち追加をお願いし、確認ボタンを押してください。</p>
+      <?php if (!empty($panel['addFriendUrl'])): ?>
+        <div class="qr-box">
+          <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=<?= urlencode($panel['addFriendUrl']) ?>" alt="友だち追加QRコード" width="160" height="160">
+        </div>
+        <p class="empty-hint">上記QRをご本人の端末で読み取り、友だち追加をお願いしてください。</p>
+      <?php endif; ?>
+      <form method="post" action="/mypage/">
+        <input type="hidden" name="csrf_token" value="<?= h($_SESSION['mypage_csrf_token']) ?>">
+        <input type="hidden" name="action" value="check_friend_user">
+        <input type="hidden" name="user_id" value="<?= $userId ?>">
+        <button type="submit"><?= Layout::icon('check') ?> 今すぐ確認する</button>
+      </form>
     <?php elseif ($panel['userLoginUrl'] !== null): ?>
       <p class="empty-hint">まだLINE連携が完了していません。下のURLをコピーして、ご本人のスマートフォンに送ってください。</p>
       <div class="copy-box">

@@ -76,6 +76,15 @@ class FamilyAccountRepository
         )->execute([$id]);
     }
 
+    // LINE公式アカウント「TAYORIサポート」をブロック(unfollowイベント)された際に呼ぶ。
+    // これによりgetNotifiableForUser()の通知対象条件から自動的に除外される
+    public function clearFriendConfirmation(int $id): void
+    {
+        $this->pdo->prepare(
+            'UPDATE family_accounts SET friend_confirmed_at = NULL WHERE id = ?'
+        )->execute([$id]);
+    }
+
     // 放置(未連携タイムアウト)による自動キャンセル時、emailの一意制約が再申込みを永久に妨げないよう解放する
     public function clearEmail(int $id): void
     {

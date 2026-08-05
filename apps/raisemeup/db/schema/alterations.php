@@ -122,6 +122,15 @@ return [
         ADD COLUMN IF NOT EXISTS friend_confirmed_at DATETIME DEFAULT NULL
         COMMENT '友だち追加(followイベント)が確認できた時刻。未確認ならNULL' AFTER line_user_id;",
 
+    // 利用者本人にも、ご家族と同様「友だち追加(followイベント)を確認できた時刻」を持たせる。
+    // status(pending→active)は放置判定など他ロジックにも使う汎用フィールドなので流用せず、
+    // 友だち追加の生死だけを表す専用カラムを分離する。ご家族側と異なりstatusは初回オンボード後
+    // 'active'のまま変化しないため、「本カラムがNULLでもstatusがactive」であれば
+    // 「一度は確認済みだったが、後からブロック(unfollowイベント)された」ケースと判別できる
+    'users.friend_confirmed_at' => "ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS friend_confirmed_at DATETIME DEFAULT NULL
+        COMMENT '友だち追加(followイベント)が確認できた時刻。未確認/ブロック後はNULL' AFTER line_user_id;",
+
     // 初回だけ自動生成して以降固定する、AIコンパニオン自身の軽い自己紹介(2〜3個の短い文の配列)。
     // 会話中に自分の話として使うことで、利用者から聞き出すだけの一方的なやり取りにならないようにする。
     // 将来項目を増やしても既存データの移行が不要なようJSON型にしている

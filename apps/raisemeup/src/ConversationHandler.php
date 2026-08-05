@@ -794,12 +794,44 @@ class ConversationHandler
         }
 
         $user = $this->userRepo->findByLineUserId($lineUserId);
-        // LINEログイン未連携(招待コード経由も未実施)のフォロー、または既にオンボード済み(再フォロー等)は無視する
-        if ($user === null || $user['status'] !== 'pending') {
+        if ($user === null) {
+            return; // LINEログイン未連携(招待コード経由も未実施)
+        }
+
+        if ($user['status'] === 'pending') {
+            // 初回: LINEログイン済みだが友だち追加は初めて確認できたケース
+            FriendConfirmationService::confirmUser($this->pdo, $this->userRepo, $this->lineClient, $user);
             return;
         }
 
-        FriendConfirmationService::confirmUser($this->pdo, $this->userRepo, $this->lineClient, $user);
+        if ($user['friend_confirmed_at'] === null) {
+            // オンボード済み(status='active')だが未確認 = ブロック後の再フォロー。挨拶は再送しない
+            FriendConfirmationService::reconnectUser($this->userRepo, $this->lineClient, $user);
+            return;
+        }
+
+        // 既に確認済み(friend_confirmed_at NOT NULL)での再フォローは何もしない(従来通り)
+    }
+
+    /**
+     * LINE公式アカウントのブロック(unfollowイベント)を処理する。
+     * friend_confirmed_atだけをNULLに戻し、statusには触れない
+     * (放置判定など他ロジックへの副作用を避けるため)。ブロックされた相手に
+     * メッセージは送れない(送っても失敗するだけ)ため、DB更新のみ行う。
+     */
+    public function handleUnfollowEvent(array $event): void
+    {
+        $lineUserId = $event['source']['userId'] ?? '';
+        if ($lineUserId === '') {
+            return;
+        }
+
+        $user = $this->userRepo->findByLineUserId($lineUserId);
+        if ($user === null || $user['friend_confirmed_at'] === null) {
+            return;
+        }
+
+        $this->userRepo->clearFriendConfirmation((int) $user['id']);
     }
 
     // 住所からJMA予報区を判定し、天気・警報注意報の要約を取得する。住所未登録・判定不可・API失敗時は

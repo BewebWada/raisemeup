@@ -51,6 +51,16 @@ class FriendConfirmationService
         }
     }
 
+    // ブロック後に再度友だち追加された場合の軽量処理。confirmUser()と違い、初回の「はじめまして」挨拶
+    // (=会話開始・家族への「LINE連携が完了しました」通知)は再送しない。友だち追加確認の記録のみ更新し、
+    // 短い再開メッセージだけを送る
+    public static function reconnectUser(UserRepository $userRepo, LineClient $lineClient, array $user): void
+    {
+        $userRepo->reconfirmFriend((int) $user['id']);
+        $companionName = $user['companion_name'] ?: 'たより';
+        $lineClient->push($user['line_user_id'], "{$companionName}です。またお話しできて嬉しいです。これからもよろしくお願いしますね。");
+    }
+
     public static function confirmFamily(FamilyAccountRepository $familyRepo, LineClient $lineClient, array $family): void
     {
         $familyRepo->markFriendConfirmed((int) $family['id']);

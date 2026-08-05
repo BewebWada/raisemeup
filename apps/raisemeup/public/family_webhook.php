@@ -53,6 +53,14 @@ foreach ($events as $event) {
         }
         continue;
     }
+    if (($event['type'] ?? '') === 'unfollow') {
+        try {
+            handleFamilyUnfollowEvent($familyRepo, $event);
+        } catch (Throwable $e) {
+            error_log('Family webhook unfollow event handling failed: ' . $e->getMessage());
+        }
+        continue;
+    }
     if (($event['type'] ?? '') !== 'message' || ($event['message']['type'] ?? '') !== 'text') {
         continue;
     }
@@ -86,6 +94,26 @@ function handleFamilyFollowEvent(FamilyAccountRepository $familyRepo, LineClient
     }
 
     FriendConfirmationService::confirmFamily($familyRepo, $lineClient, $family);
+}
+
+/**
+ * ご家族側のLINE公式アカウント「TAYORIサポート」ブロック(unfollowイベント)を処理する。
+ * friend_confirmed_atをNULLに戻す。これによりgetNotifiableForUser()の通知対象から
+ * 自動的に除外され、通知がサイレントに止まっている状態をマイページ側で検知できるようになる。
+ */
+function handleFamilyUnfollowEvent(FamilyAccountRepository $familyRepo, array $event): void
+{
+    $lineUserId = $event['source']['userId'] ?? '';
+    if ($lineUserId === '') {
+        return;
+    }
+
+    $family = $familyRepo->findByLineUserId($lineUserId);
+    if ($family === null || $family['friend_confirmed_at'] === null) {
+        return;
+    }
+
+    $familyRepo->clearFriendConfirmation((int) $family['id']);
 }
 
 function handleFamilyMessage(
