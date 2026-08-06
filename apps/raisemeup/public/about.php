@@ -28,10 +28,13 @@ Layout::renderHeader('about', 'TAYORIについて', true);
   .section-head { text-align:center; max-width:640px; margin:0 auto 36px; }
   .section-head h2 { font-size:clamp(1.4rem, 3vw, 1.8rem); margin:0 0 10px; }
   .section-head p { color:var(--text-muted); line-height:1.8; margin:0; font-size:0.98rem; }
-  .section-head .plan-badge {
-    display:inline-flex; align-items:center; gap:8px; margin:0 0 14px; padding:8px 22px;
-    border-radius:var(--radius-pill); background:var(--card-peach); color:#8a5a2e;
-    font-weight:bold; font-size:0.92rem; letter-spacing:0.01em;
+  .section-head .eyebrow {
+    display:flex; align-items:center; justify-content:center; gap:12px;
+    margin:0 0 12px; font-weight:bold; font-size:0.8rem; letter-spacing:0.16em;
+    color:var(--accent);
+  }
+  .section-head .eyebrow::before, .section-head .eyebrow::after {
+    content:''; width:28px; height:1px; background:var(--accent); opacity:0.45;
   }
 
   .about-wrap {
@@ -299,8 +302,8 @@ Layout::renderHeader('about', 'TAYORIについて', true);
 
 <section>
   <div class="section-head">
+    <span class="eyebrow">寄り添いスタンダードプラン以上なら</span>
     <h2>見守りの仕組みを、もう少し詳しく</h2>
-    <span class="plan-badge"><?= Layout::icon('shield') ?> 寄り添いスタンダード以上の安心機能</span>
     <p>会話の中の特定のキーワードから、気になる兆候を自動で検知しています。リスクの高さに応じて対応を分けています。</p>
   </div>
   <div class="risk-band">
