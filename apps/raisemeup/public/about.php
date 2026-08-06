@@ -286,7 +286,7 @@ Layout::renderHeader('about', 'TAYORIについて', true);
       </div>
       <strong>写真や書類を見せて会話</strong>
       <p>お薬の説明書やお手紙の写真を送るだけで、内容を読み取って一緒に確認できます。難しい操作は必要ありません。</p>
-      <p class="card-note">※ 1日3回まで(寄り添いスタンダード以上は1日5回、高画質での原稿読み取り・内容の保存も可能です)。</p>
+      <p class="card-note">※ 1日3回まで(寄り添いスタンダード以上は1日5回、高画質での原稿読み取り・内容の保存も可能です。保存した内容は、マイページからいつでも全文を見返せます)。</p>
     </div>
     <div class="bento-card peach bento-i">
       <span class="icon-ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><circle cx="12" cy="12" r="9"/><path d="M8.5 10h.01M15.5 10h.01"/><path d="M8.2 14.5c1 1.7 2.4 2.6 3.8 2.6s2.8-.9 3.8-2.6"/></svg></span>
