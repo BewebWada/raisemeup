@@ -44,6 +44,26 @@ class DocumentTextRepository
         return array_reverse($rows);
     }
 
+    // 後続のテキストターンで、直近の書類内容への確認・訂正発言が取れた場合に追記する。
+    // どの書類への言及かの判定はClaude側に委ねず、単純に「直近1件」を対象にする
+    // (書類を見せてもらった直後の雑談で確認・訂正が入る、というのがほぼ唯一の実際のユースケースのため)
+    public function appendConfirmationNote(int $userId, string $note): bool
+    {
+        $idStmt = $this->pdo->prepare(
+            "SELECT id FROM document_texts WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1"
+        );
+        $idStmt->execute([$userId]);
+        $id = $idStmt->fetchColumn();
+        if ($id === false) {
+            return false;
+        }
+
+        $this->pdo->prepare(
+            "UPDATE document_texts SET extracted_text = CONCAT(extracted_text, '\n\n[本人による確認・訂正] ', ?) WHERE id = ?"
+        )->execute([$note, (int) $id]);
+        return true;
+    }
+
     // マイページからの削除用。user_idで所有権を確認し、他利用者の書類を消せないようにする
     public function delete(int $id, int $userId): bool
     {

@@ -314,6 +314,16 @@ class ConversationHandler
             }
         }
 
+        // ⑤.37 直近保存した書類の内容について、利用者から確認・訂正の発言が取れた場合は追記しておく
+        $documentConfirmationNote = trim((string) ($result['document_confirmation_note'] ?? ''));
+        if ($documentConfirmationNote !== '') {
+            try {
+                $this->documentTextRepo->appendConfirmationNote((int) $user['id'], $documentConfirmationNote);
+            } catch (Throwable $e) {
+                error_log('DocumentTextRepository::appendConfirmationNote failed: ' . $e->getMessage());
+            }
+        }
+
         // ⑤.36 自己紹介期間の話題カバレッジ用に、今回の会話で触れられたジャンルを記録する
         $this->topicCoverageRepo->touch((int) $user['id'], $result['topics_touched'] ?? []);
 
