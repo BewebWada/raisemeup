@@ -132,6 +132,7 @@ Layout::renderHeader('about', 'TAYORIについて', true);
   .risk-row .desc strong { display:block; font-size:0.96rem; margin-bottom:2px; }
   .risk-row .desc span { color:var(--text-muted); font-size:0.85rem; }
   .risk-row .action { color:var(--text-muted); font-size:0.82rem; text-align:right; white-space:nowrap; }
+  .risk-row .action .plan { display:block; margin-top:3px; font-size:0.72rem; color:#a08d78; }
   @media (max-width: 640px) {
     .risk-row { grid-template-columns:1fr; text-align:left; gap:6px; }
     .risk-row .action { text-align:left; }
@@ -302,43 +303,42 @@ Layout::renderHeader('about', 'TAYORIについて', true);
       <div class="risk-row">
         <span class="level high">高</span>
         <span class="desc"><strong>振込・送金の要求</strong><span>「振込」「口座番号」「至急送金」などの表現</span></span>
-        <span class="action">記録+ご家族へ通知</span>
+        <span class="action">記録+ご家族へ通知<span class="plan">寄り添いスタンダード以上</span></span>
       </div>
       <div class="risk-row">
         <span class="level high">高</span>
         <span class="desc"><strong>個人情報の聞き出し</strong><span>「暗証番号」「マイナンバー」「キャッシュカード」などの表現</span></span>
-        <span class="action">記録+ご家族へ通知</span>
+        <span class="action">記録+ご家族へ通知<span class="plan">寄り添いスタンダード以上</span></span>
       </div>
       <div class="risk-row">
         <span class="level high">高</span>
         <span class="desc"><strong>緊急性を煽る表現</strong><span>「今すぐ」「誰にも言わないで」などの判断を急がせる言い回し</span></span>
-        <span class="action">記録+ご家族へ通知</span>
+        <span class="action">記録+ご家族へ通知<span class="plan">寄り添いスタンダード以上</span></span>
       </div>
       <div class="risk-row">
         <span class="level high">高</span>
         <span class="desc"><strong>体調の急変・事故</strong><span>「倒れた」「息ができない」「転んだ」「火事」などの緊急性の高い訴え</span></span>
-        <span class="action">記録+ご家族へ通知</span>
+        <span class="action">記録+ご家族へ通知<span class="plan">寄り添いスタンダード以上</span></span>
       </div>
       <div class="risk-row">
         <span class="level medium">中</span>
         <span class="desc"><strong>相談を止めさせる誘導</strong><span>「家族には内緒」「一人で対応して」などの孤立化の兆候</span></span>
-        <span class="action">記録+ご家族へ通知</span>
+        <span class="action">記録+ご家族へ通知<span class="plan">寄り添いスタンダード以上</span></span>
       </div>
       <div class="risk-row">
         <span class="level medium">中</span>
         <span class="desc"><strong>体調不良・トラブルの訴え</strong><span>「しんどい」「めまい」「怖い人」など、様子を見るべき発言</span></span>
-        <span class="action">記録+ご家族へ通知</span>
+        <span class="action">記録+ご家族へ通知<span class="plan">寄り添いスタンダード以上</span></span>
       </div>
       <div class="risk-row">
         <span class="level low">低</span>
         <span class="desc"><strong>不審な人物の初出</strong><span>「知らない番号」「初めての人」など、まだ様子見でよい発言</span></span>
-        <span class="action">記録のみ</span>
+        <span class="action">記録のみ<span class="plan">寄り添いスタンダード以上</span></span>
       </div>
     </div>
     <p class="risk-note">
-      通知の頻度が高くなりすぎないよう、「低」レベルはマイページの「安心レポート」への記録のみに留め、
-      「中」以上を検知した場合にご家族へLINEでお知らせします。この見守りアラートは、寄り添いスタンダード以上でご利用いただけます。
-      あわせて、読み取った書類や写真の内容も、寄り添いスタンダード以上ならマイページでいつでも確認いただけます。<br>
+      通知の頻度が高くなりすぎないよう、「低」レベルはマイページの「安心レポート」への記録のみに留め、「中」以上を検知した場合にご家族へLINEでお知らせします。
+      寄り添いベーシックでは検知の記録のみを行い、ご家族への表示・通知は行いません。あわせて、読み取った書類や写真の内容も、寄り添いスタンダード以上ならマイページでいつでも確認いただけます。<br>
       ※ この機能はキーワードに基づく検知であり、すべての詐欺やトラブルを見逃さないことを保証するものではありません。心配な際は、直接ご本人にご連絡ください。
     </p>
   </div>
