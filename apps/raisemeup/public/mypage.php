@@ -403,6 +403,14 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
   .theme-delete-form { margin:0; }
   .theme-delete-btn { margin:0; padding:6px 14px; font-size:0.8rem; background:#eee; color:#555; }
   .theme-delete-btn:hover { background:#ddd; }
+  .doc-detail-btn { margin:0; padding:0; background:none; border:none; color:var(--text); font:inherit; text-align:left; text-decoration:underline; text-underline-offset:2px; cursor:pointer; flex:1; }
+  .doc-detail-btn:hover { color:var(--brand-dark); background:none; }
+  dialog.doc-dialog { max-width:520px; width:90vw; border:none; border-radius:var(--radius-lg); padding:24px; box-shadow:0 8px 32px rgba(0,0,0,0.2); }
+  dialog.doc-dialog::backdrop { background:rgba(61,58,53,0.45); }
+  dialog.doc-dialog h3 { margin:0 0 4px; font-size:0.95rem; color:var(--brand-dark); }
+  dialog.doc-dialog .doc-dialog-date { color:#999; font-size:0.82rem; margin-bottom:14px; }
+  dialog.doc-dialog .doc-dialog-text { white-space:pre-wrap; line-height:1.7; font-size:0.95rem; margin:0 0 20px; }
+  dialog.doc-dialog .doc-dialog-close { margin-top:0; padding:10px 24px; }
   .theme-add-form { display:flex; gap:8px; margin-top:12px; align-items:center; }
   .theme-add-form input[type=text] { flex:1; margin:0; }
   .theme-add-form button { margin:0; padding:11px 22px; font-size:0.9rem; white-space:nowrap; }
@@ -486,6 +494,13 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
         document.execCommand('copy');
         markCopied();
       }
+    });
+  });
+
+  document.querySelectorAll('.doc-detail-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var dialog = document.getElementById(btn.getAttribute('data-dialog-target'));
+      if (dialog) { dialog.showModal(); }
     });
   });
 })();
@@ -734,8 +749,9 @@ function renderUserPanel(array $panel, array $family, int $savedUserId, int $the
         <p class="empty-hint">まだ読み取った書類はありません。お薬の説明書やお手紙の写真をLINEで送ると、内容がここに保存されます。</p>
       <?php else: ?>
         <?php foreach ($panel['documentTexts'] as $doc): ?>
+          <?php $docDialogId = 'doc-dialog-' . (int) $doc['id']; ?>
           <div class="theme-item">
-            <span class="theme-text"><?= h(mb_strimwidth($doc['extracted_text'], 0, 40, '…')) ?></span>
+            <button type="button" class="doc-detail-btn" data-dialog-target="<?= h($docDialogId) ?>"><?= h(mb_strimwidth(str_replace("\n", ' ', $doc['extracted_text']), 0, 40, '…')) ?></button>
             <span class="theme-expiry"><?= h((new DateTime($doc['created_at']))->format('n月j日')) ?></span>
             <form method="post" action="/mypage/" class="theme-delete-form">
               <input type="hidden" name="csrf_token" value="<?= h($_SESSION['mypage_csrf_token']) ?>">
@@ -745,6 +761,12 @@ function renderUserPanel(array $panel, array $family, int $savedUserId, int $the
               <button type="submit" class="theme-delete-btn">削除</button>
             </form>
           </div>
+          <dialog class="doc-dialog" id="<?= h($docDialogId) ?>">
+            <h3>読み取った書類の内容</h3>
+            <div class="doc-dialog-date"><?= h((new DateTime($doc['created_at']))->format('Y年n月j日 H:i')) ?></div>
+            <p class="doc-dialog-text"><?= h($doc['extracted_text']) ?></p>
+            <form method="dialog"><button type="submit" class="doc-dialog-close">閉じる</button></form>
+          </dialog>
         <?php endforeach; ?>
       <?php endif; ?>
       <p class="empty-hint">写真そのものは保存されず、読み取ったテキストのみを保存しています。不要な内容は削除できます。</p>
