@@ -8,6 +8,7 @@ class ClaudeClient
 {
     private string $apiKey;
     private string $model;
+    private string $documentModel;
 
     private const FALLBACK_REPLY = 'すみません、少し聞き取れませんでした。もう一度お願いできますか?';
 
@@ -51,10 +52,15 @@ PROMPT;
         'sparkle' => ['packageId' => '11539', 'stickerId' => '52114136'],
     ];
 
-    public function __construct(string $apiKey, string $model)
+    // 原稿対応モード(画像からの文字起こし)専用のモデル。通常会話はコスト優先でHaikuを使うが、
+    // 原稿の書き写しは薬の誤読が実害に繋がりうる上、Haikuでは「重複だから省略」「不確かな箇所を
+    // 自然な文に補完してしまう」といった不安定な挙動が実機テストで確認されたため、より高精度な
+    // モデルに切り替える。1日5枚上限で呼び出し回数が頭打ちなので、コスト影響は限定的
+    public function __construct(string $apiKey, string $model, string $documentModel = 'claude-sonnet-5')
     {
         $this->apiKey = $apiKey;
         $this->model = $model;
+        $this->documentModel = $documentModel;
     }
 
 
@@ -136,8 +142,11 @@ PROMPT;
             ],
         ];
 
+        // 原稿対応モードは文字の誤読・補完が実害に繋がりうるため、通常会話用のHaikuより高精度な
+        // documentModelで呼ぶ(コンストラクタのコメント参照)
+        $callModel = $documentModeEnabled ? $this->documentModel : null;
         for ($attempt = 1; $attempt <= 2; $attempt++) {
-            $parsed = $this->callAndParse($systemPrompt, $messages, $attempt);
+            $parsed = $this->callAndParse($systemPrompt, $messages, $attempt, $callModel);
             if ($parsed !== null) {
                 return $parsed;
             }
@@ -186,8 +195,9 @@ PROMPT;
     }
 
     // $systemPromptはbuildSystemPromptが返す2ブロック配列(静的+動的、静的側にcache_control付き)。
-    // そのままjson_encodeに渡すだけでAPIが期待する配列形式のsystemフィールドになる
-    private function callAndParse(array $systemPrompt, array $messages, int $attempt): ?array
+    // そのままjson_encodeに渡すだけでAPIが期待する配列形式のsystemフィールドになる。
+    // $modelOverrideを渡すと$this->modelの代わりにそちらを使う(原稿対応モード用)
+    private function callAndParse(array $systemPrompt, array $messages, int $attempt, ?string $modelOverride = null): ?array
     {
         $ch = curl_init('https://api.anthropic.com/v1/messages');
         curl_setopt_array($ch, [
@@ -201,7 +211,7 @@ PROMPT;
                 'anthropic-version: 2023-06-01',
             ],
             CURLOPT_POSTFIELDS => json_encode([
-                'model' => $this->model,
+                'model' => $modelOverride ?? $this->model,
                 'max_tokens' => 1024,
                 'system' => $systemPrompt,
                 'messages' => $messages,
