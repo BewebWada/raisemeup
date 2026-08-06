@@ -403,7 +403,7 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
   .theme-delete-form { margin:0; }
   .theme-delete-btn { margin:0; padding:6px 14px; font-size:0.8rem; background:#eee; color:#555; }
   .theme-delete-btn:hover { background:#ddd; }
-  .doc-detail-btn { display:block; justify-content:flex-start; margin:0; padding:0; background:none; border:none; color:var(--text); font:inherit; text-align:left; text-decoration:underline; text-underline-offset:2px; cursor:pointer; flex:1; }
+  .doc-detail-btn { display:block; justify-content:flex-start; margin:0; padding:0; background:none; border:none; color:var(--text); font:inherit; text-align:left; text-decoration:underline; text-underline-offset:2px; cursor:pointer; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .doc-detail-btn:hover { color:var(--brand-dark); background:none; }
   dialog.doc-dialog { position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); margin:0; max-width:520px; max-height:80vh; width:90vw; overflow-y:auto; border:none; border-radius:var(--radius-lg); padding:24px; box-shadow:0 8px 32px rgba(0,0,0,0.2); }
   dialog.doc-dialog::backdrop { background:rgba(61,58,53,0.45); }
@@ -751,7 +751,7 @@ function renderUserPanel(array $panel, array $family, int $savedUserId, int $the
         <?php foreach ($panel['documentTexts'] as $doc): ?>
           <?php $docDialogId = 'doc-dialog-' . (int) $doc['id']; ?>
           <div class="theme-item">
-            <button type="button" class="doc-detail-btn" data-dialog-target="<?= h($docDialogId) ?>"><?= h(mb_strimwidth(str_replace("\n", ' ', $doc['extracted_text']), 0, 40, '…')) ?></button>
+            <button type="button" class="doc-detail-btn" data-dialog-target="<?= h($docDialogId) ?>"><?= h(str_replace("\n", ' ', $doc['extracted_text'])) ?></button>
             <span class="theme-expiry"><?= h((new DateTime($doc['created_at']))->format('n月j日')) ?></span>
             <form method="post" action="/mypage/" class="theme-delete-form">
               <input type="hidden" name="csrf_token" value="<?= h($_SESSION['mypage_csrf_token']) ?>">
