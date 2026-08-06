@@ -9,6 +9,15 @@
             "command": "bash /var/www/raisemeup.jp/public_html/.claude/hooks/block-production-writes.sh"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /var/www/raisemeup.jp/public_html/.claude/hooks/block-production-deploy.sh"
+          }
+        ]
       }
     ]
   }
