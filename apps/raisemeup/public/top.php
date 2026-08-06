@@ -19,6 +19,7 @@ const PLAN_FEATURES = [
     ['label' => '見守りアラート(気になる会話の検知)', 'plans' => ['family_watch', 'premium_medical']],
     ['label' => '安否確認(応答なし検知・緊急時のご家族通知)', 'plans' => ['family_watch', 'premium_medical']],
     ['label' => 'ご家族からの伝言・気にかけてほしいテーマ設定', 'plans' => ['family_watch', 'premium_medical']],
+    ['label' => 'お薬・お手紙の高画質読み取り・保存・照合', 'plans' => ['family_watch', 'premium_medical']],
     ['label' => '医療・介護関係者との連携', 'plans' => ['premium_medical']],
 ];
 

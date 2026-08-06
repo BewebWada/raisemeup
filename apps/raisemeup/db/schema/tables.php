@@ -82,6 +82,20 @@ return [
         INDEX idx_user_name (user_id, canonical_name)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='人物プロフィール本体';",
 
+    // スタンダード以上限定の画像認識(原稿対応モード)で読み取ったテキストの保存。画像自体は保存しない
+    'document_texts' => "CREATE TABLE IF NOT EXISTS document_texts (
+        id                      BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        user_id                 BIGINT UNSIGNED NOT NULL,
+        source_conversation_id  BIGINT UNSIGNED DEFAULT NULL,
+        extracted_text          TEXT NOT NULL COMMENT '写真から読み取った文字起こし(原文ママ、要約しない)',
+        status                  ENUM('active', 'deleted') NOT NULL DEFAULT 'active',
+        created_at              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        deleted_at              DATETIME DEFAULT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (source_conversation_id) REFERENCES conversations(id) ON DELETE SET NULL,
+        INDEX idx_user_active (user_id, status, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='スタンダード以上限定: 原稿写真から読み取ったテキストの保存(画像自体は保存しない)';",
+
     'person_attributes' => "CREATE TABLE IF NOT EXISTS person_attributes (
         id                      BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         person_id               BIGINT UNSIGNED NOT NULL,

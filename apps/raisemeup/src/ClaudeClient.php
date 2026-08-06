@@ -78,9 +78,9 @@ PROMPT;
      * @param array $personaFacts users.companion_persona(json_decode済み)。コンパニオン自身の軽い自己紹介
      * @return array ['reply_text' => string, 'persons' => [...], 'schedules' => [...], 'family_message_delivered' => bool]
      */
-    public function generateReplyAndExtract(array $conversationHistory, string $userMessage, array $knownPersons, array $knownSchedules, array $summaries, string $companionName, string $userDisplayName, ?string $userGender = null, string $userAddress = '', string $weatherSummary = '', array $pendingFamilyMessages = [], array $activeThemes = [], array $medicationStatusToday = [], array $topicCoverage = [], array $personaFacts = []): array
+    public function generateReplyAndExtract(array $conversationHistory, string $userMessage, array $knownPersons, array $knownSchedules, array $summaries, string $companionName, string $userDisplayName, ?string $userGender = null, string $userAddress = '', string $weatherSummary = '', array $pendingFamilyMessages = [], array $activeThemes = [], array $medicationStatusToday = [], array $topicCoverage = [], array $personaFacts = [], array $recentDocumentTexts = []): array
     {
-        $systemPrompt = $this->buildSystemPrompt($knownPersons, $knownSchedules, $summaries, $companionName, $userDisplayName, $userGender, $userAddress, $weatherSummary, $pendingFamilyMessages, $activeThemes, $medicationStatusToday, $topicCoverage, $personaFacts);
+        $systemPrompt = $this->buildSystemPrompt($knownPersons, $knownSchedules, $summaries, $companionName, $userDisplayName, $userGender, $userAddress, $weatherSummary, $pendingFamilyMessages, $activeThemes, $medicationStatusToday, $topicCoverage, $personaFacts, $recentDocumentTexts);
 
         $messages = $conversationHistory;
         $messages[] = ['role' => 'user', 'content' => $userMessage];
@@ -106,9 +106,24 @@ PROMPT;
      * image/jpeg固定でよい。画像の中身を見せられない事情がある場合(1日の認識上限超過、画像として
      * 読み取れないファイル等)はこちらではなくgenerateImageUnavailableReplyを使う。
      */
-    public function generateImageReply(array $conversationHistory, string $imageBase64, string $caption, array $knownPersons, array $knownSchedules, array $summaries, string $companionName, string $userDisplayName, ?string $userGender = null, string $userAddress = '', string $weatherSummary = '', array $pendingFamilyMessages = [], array $activeThemes = [], array $medicationStatusToday = [], array $topicCoverage = [], array $personaFacts = []): array
+    public function generateImageReply(array $conversationHistory, string $imageBase64, string $caption, array $knownPersons, array $knownSchedules, array $summaries, string $companionName, string $userDisplayName, ?string $userGender = null, string $userAddress = '', string $weatherSummary = '', array $pendingFamilyMessages = [], array $activeThemes = [], array $medicationStatusToday = [], array $topicCoverage = [], array $personaFacts = [], array $recentDocumentTexts = [], bool $documentModeEnabled = false): array
     {
-        $systemPrompt = $this->buildSystemPrompt($knownPersons, $knownSchedules, $summaries, $companionName, $userDisplayName, $userGender, $userAddress, $weatherSummary, $pendingFamilyMessages, $activeThemes, $medicationStatusToday, $topicCoverage, $personaFacts);
+        $systemPrompt = $this->buildSystemPrompt($knownPersons, $knownSchedules, $summaries, $companionName, $userDisplayName, $userGender, $userAddress, $weatherSummary, $pendingFamilyMessages, $activeThemes, $medicationStatusToday, $topicCoverage, $personaFacts, $recentDocumentTexts);
+
+        if ($documentModeEnabled) {
+            $systemPrompt[] = [
+                'type' => 'text',
+                'text' => '【高画質・原稿対応モード】この写真は原稿(お薬の説明書やお手紙等)の可能性があるため、'
+                    . '通常より高い解像度で受け取っています。写真に書かれている文字が読み取れる場合は、その内容を'
+                    . 'できるだけ正確に(誤読を減らすため、不明瞭な文字は前後の文脈から補って構いません)'
+                    . '"document_text"に文字列でそのまま書き写してください(要約せず原文ママ)。文字が読み取れない・'
+                    . '書類ではない写真(食べ物や風景等)の場合は"document_text"はnullのままにしてください。'
+                    . '書き写した内容が薬に関するものらしく、かつ【今日のお薬状況】に登録済みの薬がある場合、'
+                    . '名前が近い/一致するかどうかに触れてよいですが、「これを飲んで大丈夫」「これで合っている」の'
+                    . 'ように断定してはいけません。あくまで「〜と書いてあるみたいだね、念のため確認してみて」のように、'
+                    . '利用者自身の確認や、必要であればご家族・薬剤師への確認を促す言い方に留めてください。',
+            ];
+        }
 
         $messages = $conversationHistory;
         $messages[] = [
@@ -140,9 +155,9 @@ PROMPT;
      * @param string $situationNote 「利用者から〜が送られてきましたが、〜ため、この写真の中身は見ることができません。」の
      *   「〜」部分にあたる、状況を説明する文(句点で終わる完全な文にすること)
      */
-    public function generateImageUnavailableReply(string $situationNote, array $conversationHistory, array $knownPersons, array $knownSchedules, array $summaries, string $companionName, string $userDisplayName, ?string $userGender = null, string $userAddress = '', string $weatherSummary = '', array $pendingFamilyMessages = [], array $activeThemes = [], array $medicationStatusToday = [], array $topicCoverage = [], array $personaFacts = []): array
+    public function generateImageUnavailableReply(string $situationNote, array $conversationHistory, array $knownPersons, array $knownSchedules, array $summaries, string $companionName, string $userDisplayName, ?string $userGender = null, string $userAddress = '', string $weatherSummary = '', array $pendingFamilyMessages = [], array $activeThemes = [], array $medicationStatusToday = [], array $topicCoverage = [], array $personaFacts = [], array $recentDocumentTexts = []): array
     {
-        $systemPrompt = $this->buildSystemPrompt($knownPersons, $knownSchedules, $summaries, $companionName, $userDisplayName, $userGender, $userAddress, $weatherSummary, $pendingFamilyMessages, $activeThemes, $medicationStatusToday, $topicCoverage, $personaFacts);
+        $systemPrompt = $this->buildSystemPrompt($knownPersons, $knownSchedules, $summaries, $companionName, $userDisplayName, $userGender, $userAddress, $weatherSummary, $pendingFamilyMessages, $activeThemes, $medicationStatusToday, $topicCoverage, $personaFacts, $recentDocumentTexts);
         $systemPrompt[] = [
             'type' => 'text',
             'text' => "【今回の特別な状況】{$situationNote} 写真そのものは見ずに、reply_textでは"
@@ -1313,7 +1328,7 @@ PROMPT;
      *   「情報が無い」ことを踏まえた振る舞いを静的ブロック側の指示に委ねる)
      * @return array{0: array{type: string, text: string, cache_control: array}, 1: array{type: string, text: string}}
      */
-    private function buildSystemPrompt(array $knownPersons, array $knownSchedules, array $summaries, string $companionName, string $userDisplayName, ?string $userGender = null, string $userAddress = '', string $weatherSummary = '', array $pendingFamilyMessages = [], array $activeThemes = [], array $medicationStatusToday = [], array $topicCoverage = [], array $personaFacts = []): array
+    private function buildSystemPrompt(array $knownPersons, array $knownSchedules, array $summaries, string $companionName, string $userDisplayName, ?string $userGender = null, string $userAddress = '', string $weatherSummary = '', array $pendingFamilyMessages = [], array $activeThemes = [], array $medicationStatusToday = [], array $topicCoverage = [], array $personaFacts = [], array $recentDocumentTexts = []): array
     {
         $knownPersonsList = empty($knownPersons) ? 'なし' : implode('、', $knownPersons);
         $knownSchedulesList = empty($knownSchedules)
@@ -1331,6 +1346,14 @@ PROMPT;
         $medicationStatusList = empty($medicationStatusToday)
             ? '(お薬の登録はありません)'
             : implode("\n", array_map([MedicationLogRepository::class, 'formatStatusLine'], $medicationStatusToday));
+        // 寄り添いスタンダード以上限定: 原稿対応モードで過去に読み取り保存したテキスト(直近数件、古い順)。
+        // 「さっき見せてくれた書類」を後の雑談でも参照できるようにするための記憶。ベーシックでは常に空
+        $recentDocumentTextsList = empty($recentDocumentTexts)
+            ? '(保存されている書類はありません)'
+            : implode("\n\n", array_map(
+                fn($d) => '・' . (new DateTime($d['created_at'], new DateTimeZone('Asia/Tokyo')))->format('n月j日') . 'に見せてもらった内容: ' . $d['extracted_text'],
+                $recentDocumentTexts
+            ));
 
         $now = new DateTime('now', new DateTimeZone('Asia/Tokyo'));
         $weekdays = ['日', '月', '火', '水', '木', '金', '土'];
@@ -1751,6 +1774,9 @@ PROMPT;
 
 【今日のお薬状況】
 {$medicationStatusList}
+
+【保存されている書類(お薬の説明書・お手紙等)】
+{$recentDocumentTextsList}
 PROMPT;
 
         return [

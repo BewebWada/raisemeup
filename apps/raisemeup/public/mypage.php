@@ -6,6 +6,7 @@ require_once __DIR__ . '/../src/PlanRepository.php';
 require_once __DIR__ . '/../src/SummaryRepository.php';
 require_once __DIR__ . '/../src/RiskEventRepository.php';
 require_once __DIR__ . '/../src/FamilyThemeRepository.php';
+require_once __DIR__ . '/../src/DocumentTextRepository.php';
 require_once __DIR__ . '/../src/LineLoginClient.php';
 require_once __DIR__ . '/../src/LineClient.php';
 require_once __DIR__ . '/../src/FriendConfirmationService.php';
@@ -21,6 +22,7 @@ $pdo = Database::connect($dbConfig);
 $familyRepo = new FamilyAccountRepository($pdo);
 $userRepo = new UserRepository($pdo);
 $familyThemeRepo = new FamilyThemeRepository($pdo);
+$documentTextRepo = new DocumentTextRepository($pdo);
 
 function h(string $value): string
 {
@@ -114,6 +116,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $themeUserId = (int) ($_POST['theme_user_id'] ?? 0);
         $familyThemeRepo->cancel((int) ($_POST['theme_id'] ?? 0), (int) $family['id']);
         $activeTab = 'user-' . $themeUserId;
+    } elseif ($action === 'delete_document_text') {
+        $documentUserId = (int) ($_POST['document_user_id'] ?? 0);
+        if (!in_array($documentUserId, $ownedUserIds, true)) {
+            $errors[] = '不正な操作です。';
+        } else {
+            $documentTextRepo->delete((int) ($_POST['document_text_id'] ?? 0), $documentUserId);
+        }
+        $activeTab = 'user-' . $documentUserId;
     } elseif ($action === 'update_family') {
         $familyName = trim((string) ($_POST['family_name'] ?? ''));
         $familyEmail = trim((string) ($_POST['family_email'] ?? ''));
@@ -278,6 +288,7 @@ foreach ($linkedUsers as $u) {
         'riskEvents' => $riskRepo->getRecentForUser((int) $u['id'], 10),
         'todayTalkCount' => (int) $talkCountStmt->fetchColumn(),
         'themes' => $familyThemeRepo->getActiveForUser((int) $u['id']),
+        'documentTexts' => $documentTextRepo->getActiveForUser((int) $u['id']),
         'userLineLinked' => $userLineLinked,
         'userFriendConfirmed' => $u['status'] !== 'pending' && $u['friend_confirmed_at'] !== null,
         'userLoginUrl' => $userLoginUrl,
@@ -713,6 +724,32 @@ function renderUserPanel(array $panel, array $family, int $savedUserId, int $the
       </p>
     <?php else: ?>
       <p class="empty-hint">テーマ設定は、寄り添いスタンダード以上でご利用いただけます。</p>
+    <?php endif; ?>
+  </div>
+
+  <div class="card">
+    <h2><?= Layout::icon('check') ?> 読み取った書類の内容</h2>
+    <?php if ($riskPlan): ?>
+      <?php if (empty($panel['documentTexts'])): ?>
+        <p class="empty-hint">まだ読み取った書類はありません。お薬の説明書やお手紙の写真をLINEで送ると、内容がここに保存されます。</p>
+      <?php else: ?>
+        <?php foreach ($panel['documentTexts'] as $doc): ?>
+          <div class="theme-item">
+            <span class="theme-text"><?= h(mb_strimwidth($doc['extracted_text'], 0, 40, '…')) ?></span>
+            <span class="theme-expiry"><?= h((new DateTime($doc['created_at']))->format('n月j日')) ?></span>
+            <form method="post" action="/mypage/" class="theme-delete-form">
+              <input type="hidden" name="csrf_token" value="<?= h($_SESSION['mypage_csrf_token']) ?>">
+              <input type="hidden" name="action" value="delete_document_text">
+              <input type="hidden" name="document_text_id" value="<?= (int) $doc['id'] ?>">
+              <input type="hidden" name="document_user_id" value="<?= $userId ?>">
+              <button type="submit" class="theme-delete-btn">削除</button>
+            </form>
+          </div>
+        <?php endforeach; ?>
+      <?php endif; ?>
+      <p class="empty-hint">写真そのものは保存されず、読み取ったテキストのみを保存しています。不要な内容は削除できます。</p>
+    <?php else: ?>
+      <p class="empty-hint">原稿の高画質読み取り・内容の保存は、寄り添いスタンダード以上でご利用いただけます。</p>
     <?php endif; ?>
   </div>
 

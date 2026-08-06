@@ -12,6 +12,7 @@ require_once __DIR__ . '/RiskEventRepository.php';
 require_once __DIR__ . '/FamilyAccountRepository.php';
 require_once __DIR__ . '/FamilyMessageRepository.php';
 require_once __DIR__ . '/FamilyThemeRepository.php';
+require_once __DIR__ . '/DocumentTextRepository.php';
 require_once __DIR__ . '/SubscriptionRepository.php';
 require_once __DIR__ . '/SummaryRepository.php';
 require_once __DIR__ . '/TopicCoverageRepository.php';
@@ -33,6 +34,7 @@ class ConversationHandler
     private FamilyAccountRepository $familyRepo;
     private FamilyMessageRepository $familyMessageRepo;
     private FamilyThemeRepository $familyThemeRepo;
+    private DocumentTextRepository $documentTextRepo;
     private SubscriptionRepository $subscriptionRepo;
     private SummaryRepository $summaryRepo;
     private TopicCoverageRepository $topicCoverageRepo;
@@ -65,6 +67,13 @@ class ConversationHandler
     // 1日あたりvisionで内容を認識する写真の上限枚数(暦日リセット)。超えた分は画像を見ずに返信する
     private const DAILY_IMAGE_RECOGNITION_LIMIT = 3;
 
+    // 原稿対応モード(高解像度・原稿の文字起こし保存)は、家族への通知機能等と同じく寄り添いスタンダード
+    // 以上の契約者限定。対象プランではベーシックより高い解像度で送り、1日の上限枚数も引き上げる
+    private const DOCUMENT_MODE_PLAN_CODES = ['family_watch', 'premium_medical'];
+    private const DAILY_IMAGE_RECOGNITION_LIMIT_STANDARD = 5;
+    private const DOCUMENT_IMAGE_MAX_EDGE = 1568;
+    private const DOCUMENT_IMAGE_QUALITY = 90;
+
     public function __construct(PDO $pdo, LineClient $lineClient, LineClient $familyLineClient, ClaudeClient $claudeClient)
     {
         $this->pdo = $pdo;
@@ -80,6 +89,7 @@ class ConversationHandler
         $this->familyRepo = new FamilyAccountRepository($pdo);
         $this->familyMessageRepo = new FamilyMessageRepository($pdo);
         $this->familyThemeRepo = new FamilyThemeRepository($pdo);
+        $this->documentTextRepo = new DocumentTextRepository($pdo);
         $this->subscriptionRepo = new SubscriptionRepository($pdo);
         $this->summaryRepo = new SummaryRepository($pdo);
         $this->topicCoverageRepo = new TopicCoverageRepository($pdo);
@@ -257,6 +267,7 @@ class ConversationHandler
             error_log('MedicationLogRepository::getTodayStatusForUser failed: ' . $e->getMessage());
             $medicationStatusToday = [];
         }
+        $recentDocumentTexts = $this->documentTextRepo->getRecentForPromptContext((int) $user['id']);
         $result = $this->claudeClient->generateReplyAndExtract(
             $history,
             $userMessage,
@@ -272,7 +283,8 @@ class ConversationHandler
             $activeThemes,
             $medicationStatusToday,
             $topicCoverage,
-            $personaFacts
+            $personaFacts,
+            $recentDocumentTexts
         );
 
         // ④.5 ご家族からの伝言を今回の返信で伝えられたと判定された場合、配信済みにして家族へ確認連絡を送る
@@ -534,16 +546,21 @@ class ConversationHandler
         $this->flushPendingReplies((int) $user['id']);
         $this->resolveUrgentSilenceIfPending((int) $user['id'], $this->familyFacingName($user));
 
+        [$documentModeEnabled, $dailyLimit] = $this->resolveDocumentModeAndLimit((int) $user['id']);
         $countToday = $this->countImagesRecognizedTodayBefore((int) $user['id'], $conversationId);
         $context = $this->gatherImageContext($user, $conversationId);
 
-        if ($countToday >= self::DAILY_IMAGE_RECOGNITION_LIMIT) {
-            $this->respondToImageTurn($user, $conversationId, $lineUserId, $context, null, $this->imageLimitReachedNote());
+        if ($countToday >= $dailyLimit) {
+            $this->respondToImageTurn($user, $conversationId, $lineUserId, $context, null, $this->imageLimitReachedNote($dailyLimit), false);
             return;
         }
 
         $content = $this->lineClient->getMessageContent($lineMessageId);
-        $imageBase64 = $content !== null ? ImageProcessor::resizeToJpegBase64($content['binary']) : null;
+        $imageBase64 = $content !== null
+            ? ($documentModeEnabled
+                ? ImageProcessor::resizeToJpegBase64($content['binary'], self::DOCUMENT_IMAGE_MAX_EDGE, self::DOCUMENT_IMAGE_QUALITY)
+                : ImageProcessor::resizeToJpegBase64($content['binary']))
+            : null;
 
         if ($imageBase64 === null) {
             // LINEはimageと申告しているのにデコードできない技術的な失敗(上限超過とは別のケース)。
@@ -553,7 +570,17 @@ class ConversationHandler
             return;
         }
 
-        $this->respondToImageTurn($user, $conversationId, $lineUserId, $context, $imageBase64, null);
+        $this->respondToImageTurn($user, $conversationId, $lineUserId, $context, $imageBase64, null, $documentModeEnabled);
+    }
+
+    // 原稿対応モード(高解像度・文字起こし保存)が有効かどうかと、その利用者に適用する1日の上限枚数を、
+    // 現在のプランから解決する。handleImageMessage/handleFileMessageの両方から使う共通ロジック
+    private function resolveDocumentModeAndLimit(int $userId): array
+    {
+        $planCode = $this->subscriptionRepo->getCurrentPlanCodeForUser($userId);
+        $documentModeEnabled = in_array($planCode, self::DOCUMENT_MODE_PLAN_CODES, true);
+        $dailyLimit = $documentModeEnabled ? self::DAILY_IMAGE_RECOGNITION_LIMIT_STANDARD : self::DAILY_IMAGE_RECOGNITION_LIMIT;
+        return [$documentModeEnabled, $dailyLimit];
     }
 
     // 動画・大容量文書等をダウンロード・デコード試行するだけ無駄なので、この上限を超えるfileメッセージは
@@ -601,7 +628,7 @@ class ConversationHandler
         $context = $this->gatherImageContext($user, $conversationId);
 
         if ($fileSize > self::MAX_IMAGE_FILE_BYTES) {
-            $this->respondToImageTurn($user, $conversationId, $lineUserId, $context, null, self::FILE_UNVIEWABLE_NOTE);
+            $this->respondToImageTurn($user, $conversationId, $lineUserId, $context, null, self::FILE_UNVIEWABLE_NOTE, false);
             return;
         }
 
@@ -612,10 +639,13 @@ class ConversationHandler
             return;
         }
 
-        $imageBase64 = ImageProcessor::resizeToJpegBase64($content['binary']);
+        [$documentModeEnabled, $dailyLimit] = $this->resolveDocumentModeAndLimit((int) $user['id']);
+        $imageBase64 = $documentModeEnabled
+            ? ImageProcessor::resizeToJpegBase64($content['binary'], self::DOCUMENT_IMAGE_MAX_EDGE, self::DOCUMENT_IMAGE_QUALITY)
+            : ImageProcessor::resizeToJpegBase64($content['binary']);
         if ($imageBase64 === null) {
             // 画像として読み取れないファイル(文書・動画等)。1日の認識上限にはカウントしない
-            $this->respondToImageTurn($user, $conversationId, $lineUserId, $context, null, self::FILE_UNVIEWABLE_NOTE);
+            $this->respondToImageTurn($user, $conversationId, $lineUserId, $context, null, self::FILE_UNVIEWABLE_NOTE, false);
             return;
         }
 
@@ -624,12 +654,12 @@ class ConversationHandler
         $this->pdo->prepare('UPDATE conversations SET message_type = "image" WHERE id = ?')->execute([$conversationId]);
         $countToday = $this->countImagesRecognizedTodayBefore((int) $user['id'], $conversationId);
 
-        if ($countToday >= self::DAILY_IMAGE_RECOGNITION_LIMIT) {
-            $this->respondToImageTurn($user, $conversationId, $lineUserId, $context, null, $this->imageLimitReachedNote());
+        if ($countToday >= $dailyLimit) {
+            $this->respondToImageTurn($user, $conversationId, $lineUserId, $context, null, $this->imageLimitReachedNote($dailyLimit), false);
             return;
         }
 
-        $this->respondToImageTurn($user, $conversationId, $lineUserId, $context, $imageBase64, null);
+        $this->respondToImageTurn($user, $conversationId, $lineUserId, $context, $imageBase64, null, $documentModeEnabled);
     }
 
     // 画像取得・デコードのAPI/ネットワーク的な失敗時の定型応答。上限超過やファイル種別判定とは別の
@@ -654,9 +684,9 @@ class ConversationHandler
         return (int) $countStmt->fetchColumn();
     }
 
-    private function imageLimitReachedNote(): string
+    private function imageLimitReachedNote(int $dailyLimit): string
     {
-        return '利用者から写真が送られてきましたが、本日はすでに' . self::DAILY_IMAGE_RECOGNITION_LIMIT
+        return '利用者から写真が送られてきましたが、本日はすでに' . $dailyLimit
             . '枚分の写真を確認済みのため、システムの都合でこの写真の中身は見ることができません。';
     }
 
@@ -676,6 +706,7 @@ class ConversationHandler
             'pendingFamilyMessages' => $this->familyMessageRepo->getPendingForUser((int) $user['id']),
             'activeThemes' => $this->familyThemeRepo->getActiveForUser((int) $user['id']),
             'medicationStatusToday' => $this->getMedicationStatusTodaySafe((int) $user['id']),
+            'recentDocumentTexts' => $this->documentTextRepo->getRecentForPromptContext((int) $user['id']),
         ];
     }
 
@@ -693,9 +724,11 @@ class ConversationHandler
      * 画像を認識できた場合($imageBase64を渡す)、または見せられない事情がある場合($unavailableReasonを渡す。
      * 上限超過・画像として読み取れないファイル等)のいずれかでClaudeを呼び、共通の後処理
      * (人物・予定のUPSERT、服薬確認、話題カバレッジ、quiet_hours、pending_replies経由の返信キュー)を行う。
-     * $imageBase64と$unavailableReasonはどちらか一方だけを渡すこと。
+     * $imageBase64と$unavailableReasonはどちらか一方だけを渡すこと。$documentModeEnabledは
+     * (画像がある場合のみ意味を持ち)寄り添いスタンダード以上かどうか。trueの場合、Claudeに原稿の
+     * 文字起こしを依頼し、結果に含まれる"document_text"をdocument_textsへ保存する。
      */
-    private function respondToImageTurn(array $user, int $conversationId, string $lineUserId, array $context, ?string $imageBase64, ?string $unavailableReason): void
+    private function respondToImageTurn(array $user, int $conversationId, string $lineUserId, array $context, ?string $imageBase64, ?string $unavailableReason, bool $documentModeEnabled): void
     {
         if ($imageBase64 !== null) {
             $result = $this->claudeClient->generateImageReply(
@@ -714,7 +747,9 @@ class ConversationHandler
                 $context['activeThemes'],
                 $context['medicationStatusToday'],
                 $context['topicCoverage'],
-                $context['personaFacts']
+                $context['personaFacts'],
+                $context['recentDocumentTexts'],
+                $documentModeEnabled
             );
         } else {
             $result = $this->claudeClient->generateImageUnavailableReply(
@@ -732,13 +767,22 @@ class ConversationHandler
                 $context['activeThemes'],
                 $context['medicationStatusToday'],
                 $context['topicCoverage'],
-                $context['personaFacts']
+                $context['personaFacts'],
+                $context['recentDocumentTexts']
             );
         }
 
         if (!empty($context['pendingFamilyMessages']) && !empty($result['family_message_delivered'])) {
             $this->familyMessageRepo->markDelivered(array_column($context['pendingFamilyMessages'], 'id'));
             $this->notifyFamilyOfMessageDelivered((int) $user['id'], $this->familyFacingName($user));
+        }
+
+        if ($documentModeEnabled && !empty($result['document_text'])) {
+            try {
+                $this->documentTextRepo->save((int) $user['id'], $conversationId, trim((string) $result['document_text']));
+            } catch (Throwable $e) {
+                error_log('DocumentTextRepository::save failed: ' . $e->getMessage());
+            }
         }
 
         foreach ($result['persons'] ?? [] as $person) {
