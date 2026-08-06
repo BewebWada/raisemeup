@@ -1,5 +1,9 @@
 <?php
 require_once __DIR__ . '/../src/Layout.php';
+require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
+
+// APP_BASE_URLをEnvから読み込む(未ロードだとLayoutのcanonical/OGP用URLが相対パスになってしまうため)
+Env::load(__DIR__ . '/../../../.env');
 
 // クローラーによる氏名・住所・電話番号・メールアドレスの機械的な取得と、コピー&ペーストを防ぐための表示方法。
 // 各文字を実テキストではなくCSS疑似要素(::before + data-c属性)として描画するため、
@@ -15,7 +19,12 @@ function jam(string $text): string
     return '<span class="jam-wrap" aria-label="' . htmlspecialchars($text, ENT_QUOTES, 'UTF-8') . '">' . $spans . '</span>';
 }
 
-Layout::renderHeader('tokushoho', '特定商取引法に基づく表記', true);
+Layout::renderHeader(
+    'tokushoho',
+    '特定商取引法に基づく表記',
+    true,
+    'TAYORI(タヨリ)の特定商取引法に基づく表記です。運営会社・お問い合わせ先などをご確認いただけます。'
+);
 ?>
 <style>
   h1 { font-size:1.5rem; margin-bottom:24px; }

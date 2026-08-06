@@ -1,7 +1,16 @@
 <?php
 require_once __DIR__ . '/../src/Layout.php';
+require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
 
-Layout::renderHeader('about', 'TAYORIについて', true);
+// APP_BASE_URLをEnvから読み込む(未ロードだとLayoutのcanonical/OGP用URLが相対パスになってしまうため)
+Env::load(__DIR__ . '/../../../.env');
+
+Layout::renderHeader(
+    'about',
+    'TAYORIについて',
+    true,
+    'TAYORIがどんな想いで生まれ、何ができるのかをご紹介します。日々の会話から予定や体調の変化に気づき、必要な時だけご家族にお伝えする、さりげない見守りの仕組みです。'
+);
 ?>
 <style>
   .hero-wrap {

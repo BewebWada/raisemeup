@@ -1,7 +1,16 @@
 <?php
 require_once __DIR__ . '/../src/Layout.php';
+require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
 
-Layout::renderHeader('faq', 'よくある質問', true);
+// APP_BASE_URLをEnvから読み込む(未ロードだとLayoutのcanonical/OGP用URLが相対パスになってしまうため)
+Env::load(__DIR__ . '/../../../.env');
+
+Layout::renderHeader(
+    'faq',
+    'よくある質問',
+    true,
+    'TAYORIのサービス内容、料金・お申込み、見守り機能、プライバシーについてよくいただくご質問にお答えします。'
+);
 
 $categories = [
     [
@@ -81,6 +90,19 @@ $categories = [
         ],
     ],
 ];
+
+// FAQPage構造化データ(検索結果でのリッチリザルト表示用)。回答文はHTMLリンクを含むことがあるため、
+// schema.org側にはstrip_tagsしたプレーンテキストを渡す
+$faqJsonLd = ['@context' => 'https://schema.org', '@type' => 'FAQPage', 'mainEntity' => []];
+foreach ($categories as $category) {
+    foreach ($category['items'] as $item) {
+        $faqJsonLd['mainEntity'][] = [
+            '@type' => 'Question',
+            'name' => $item['q'],
+            'acceptedAnswer' => ['@type' => 'Answer', 'text' => strip_tags($item['a'])],
+        ];
+    }
+}
 ?>
 <style>
   h1 { font-size:1.6rem; margin-bottom:8px; }
@@ -115,6 +137,7 @@ $categories = [
 
 <h1>よくある質問</h1>
 <p class="faq-lead">TAYORIについて、よくいただくご質問をまとめました。</p>
+<script type="application/ld+json"><?= json_encode($faqJsonLd, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?></script>
 
 <?php foreach ($categories as $category): ?>
   <div class="faq-category">

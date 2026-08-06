@@ -1,2 +1,18 @@
 User-agent: *
-Disallow: /
+Disallow: /adminer
+Disallow: /mypage
+Disallow: /mypage_add_user.php
+Disallow: /mypage_billing.php
+Disallow: /mypage_login_start.php
+Disallow: /mypage_login_callback.php
+Disallow: /mypage_logout.php
+Disallow: /line_login_callback.php
+Disallow: /family_line_login_callback.php
+Disallow: /family_webhook.php
+Disallow: /webhook.php
+Disallow: /stripe_webhook.php
+Disallow: /simulate_chat.php
+Disallow: /apply_check_friend.php
+Disallow: /apply/resume.php
+
+Sitemap: https://tayori-net.jp/sitemap.xml

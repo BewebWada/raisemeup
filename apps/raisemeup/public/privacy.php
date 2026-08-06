@@ -1,7 +1,16 @@
 <?php
 require_once __DIR__ . '/../src/Layout.php';
+require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
 
-Layout::renderHeader('privacy', 'プライバシーポリシー', true);
+// APP_BASE_URLをEnvから読み込む(未ロードだとLayoutのcanonical/OGP用URLが相対パスになってしまうため)
+Env::load(__DIR__ . '/../../../.env');
+
+Layout::renderHeader(
+    'privacy',
+    'プライバシーポリシー',
+    true,
+    'TAYORI(タヨリ)における個人情報の取得・利用・管理方針についてご案内します。'
+);
 ?>
 <style>
   h1 { font-size:1.5rem; margin-bottom:24px; }

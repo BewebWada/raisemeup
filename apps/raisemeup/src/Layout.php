@@ -62,7 +62,10 @@ class Layout
         $metaDescription = $description !== '' ? $description : self::DEFAULT_DESCRIPTION;
         // OGP/Twitterカードは絶対URLが必須のため、APP_BASE_URL(https://tayori-net.jp)を基準に組み立てる
         $baseUrl = rtrim((string) Config::get('APP_BASE_URL', ''), '/');
-        $currentUrl = $baseUrl . ($_SERVER['REQUEST_URI'] ?? '/');
+        // クエリ文字列(?done や ?plan_id=1 等)を含めると同一ページが別URL扱いされ重複コンテンツになるため、
+        // canonical/OGP共に常にパスのみのURLを正としてクローラーに伝える
+        $canonicalPath = strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
+        $currentUrl = $baseUrl . $canonicalPath;
         $ogImageUrl = $baseUrl . self::OG_IMAGE_PATH;
         ?>
 <!DOCTYPE html>
@@ -75,6 +78,7 @@ class Layout
 <?php endif; ?>
 <title><?= htmlspecialchars($fullTitle, ENT_QUOTES, 'UTF-8') ?></title>
 <meta name="description" content="<?= htmlspecialchars($metaDescription, ENT_QUOTES, 'UTF-8') ?>">
+<link rel="canonical" href="<?= htmlspecialchars($currentUrl, ENT_QUOTES, 'UTF-8') ?>">
 
 <link rel="icon" type="image/svg+xml" href="/assets/TAYORI-mark.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
@@ -89,6 +93,8 @@ class Layout
 <meta property="og:description" content="<?= htmlspecialchars($metaDescription, ENT_QUOTES, 'UTF-8') ?>">
 <meta property="og:url" content="<?= htmlspecialchars($currentUrl, ENT_QUOTES, 'UTF-8') ?>">
 <meta property="og:image" content="<?= htmlspecialchars($ogImageUrl, ENT_QUOTES, 'UTF-8') ?>">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="<?= htmlspecialchars($fullTitle, ENT_QUOTES, 'UTF-8') ?>">
 <meta name="twitter:description" content="<?= htmlspecialchars($metaDescription, ENT_QUOTES, 'UTF-8') ?>">

@@ -35,8 +35,27 @@ function h(string $value): string
     return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 }
 
-Layout::renderHeader('top', '', true);
+Layout::renderHeader(
+    'top',
+    '離れて暮らす家族に安心を届けるLINE見守りAI',
+    true,
+    'LINEで毎日、ちょっとした会話を。TAYORIは離れて暮らすご家族の話し相手になり、気になる変化があればそっとお知らせするAI見守りサービスです。10日間無料でお試しいただけます。'
+);
+$orgBaseUrl = rtrim((string) Config::get('APP_BASE_URL', ''), '/');
 ?>
+<script type="application/ld+json"><?= json_encode([
+    '@context' => 'https://schema.org',
+    '@type' => 'Organization',
+    'name' => 'TAYORI',
+    'url' => $orgBaseUrl . '/',
+    'logo' => $orgBaseUrl . '/assets/og-image.png',
+], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?></script>
+<script type="application/ld+json"><?= json_encode([
+    '@context' => 'https://schema.org',
+    '@type' => 'WebSite',
+    'name' => 'TAYORI',
+    'url' => $orgBaseUrl . '/',
+], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?></script>
 <style>
   .hero-wrap {
     display:grid; grid-template-columns:minmax(280px, 420px) 1fr; gap:32px; align-items:center;

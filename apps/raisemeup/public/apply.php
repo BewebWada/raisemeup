@@ -275,7 +275,12 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
     [$bdYear, $bdMonth, $bdDay] = $v['user_birthdate'] !== '' ? explode('-', $v['user_birthdate']) : ['', '', ''];
     $bdMonth = $bdMonth !== '' ? (string) (int) $bdMonth : '';
     $bdDay = $bdDay !== '' ? (string) (int) $bdDay : '';
-    Layout::renderHeader('apply', 'ご利用申込');
+    Layout::renderHeader(
+        'apply',
+        'ご利用申込',
+        true,
+        'TAYORIのご利用申込はこちらから。10日間無料でお試しいただけます。ご利用者様・ご家族様の情報を入力し、LINEで簡単に連携が完了します。'
+    );
     ?>
 <style>
   .card { max-width: 680px; margin: 0 auto; background:#fff; border-radius:12px; padding:28px 24px; box-shadow:0 2px 8px rgba(0,0,0,0.06); }
