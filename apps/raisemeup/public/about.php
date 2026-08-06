@@ -51,6 +51,7 @@ Layout::renderHeader('about', 'TAYORIについて', true);
     grid-template-areas:
       "hero b c"
       "d    e g"
+      "h    i ."
       "f    f f";
   }
   .bento-card {
@@ -126,12 +127,14 @@ Layout::renderHeader('about', 'TAYORIについて', true);
   .bento-d { grid-area:d; }
   .bento-e { grid-area:e; }
   .bento-g { grid-area:g; }
+  .bento-h { grid-area:h; }
+  .bento-i { grid-area:i; }
 
   @media (max-width: 860px) {
-    .bento { grid-template-columns:repeat(2, 1fr); grid-template-areas:"hero b" "c d" "e g" "f f"; }
+    .bento { grid-template-columns:repeat(2, 1fr); grid-template-areas:"hero b" "c d" "e g" "h i" "f f"; }
   }
   @media (max-width: 560px) {
-    .bento { grid-template-columns:1fr; grid-template-areas:"hero" "b" "c" "d" "e" "g" "f"; }
+    .bento { grid-template-columns:1fr; grid-template-areas:"hero" "b" "c" "d" "e" "g" "h" "i" "f"; }
     .bento-card.banner { flex-direction:column; align-items:flex-start; text-align:left; }
   }
 
@@ -275,6 +278,23 @@ Layout::renderHeader('about', 'TAYORIについて', true);
       <strong>伝言や、気にかけてほしいテーマも</strong>
       <p>「今度顔を見せに行くね」のような伝言や、「水分補給を気にかけて」のようなテーマも、ご家族から言われたこととは明かさず、TAYORIがさりげなく会話に混ぜて伝えます。</p>
       <p class="card-note">※ 寄り添いスタンダード以上でご利用いただけます。</p>
+    </div>
+    <div class="bento-card surface bento-h">
+      <span class="icon-ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><path d="M4 8a2 2 0 0 1 2-2h1.5l1-1.6h7l1 1.6H18a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.3"/></svg></span>
+      <div class="icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8a2 2 0 0 1 2-2h1.5l1-1.6h7l1 1.6H18a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.3"/></svg>
+      </div>
+      <strong>写真や書類を見せて会話</strong>
+      <p>お薬の説明書やお手紙の写真を送るだけで、内容を読み取って一緒に確認できます。難しい操作は必要ありません。</p>
+      <p class="card-note">※ 1日3回までご利用いただけます。</p>
+    </div>
+    <div class="bento-card peach bento-i">
+      <span class="icon-ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><circle cx="12" cy="12" r="9"/><path d="M8.5 10h.01M15.5 10h.01"/><path d="M8.2 14.5c1 1.7 2.4 2.6 3.8 2.6s2.8-.9 3.8-2.6"/></svg></span>
+      <div class="icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 10h.01M15.5 10h.01"/><path d="M8.2 14.5c1 1.7 2.4 2.6 3.8 2.6s2.8-.9 3.8-2.6"/></svg>
+      </div>
+      <strong>絵文字やスタンプでのやり取りも</strong>
+      <p>文字を打つのが億劫な時は、LINEスタンプや絵文字だけでも気持ちが伝わります。TAYORIも気持ちが動いた時には、スタンプで応えることがあります。</p>
     </div>
     <div class="bento-card banner">
       <span class="icon-ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></span>

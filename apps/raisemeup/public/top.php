@@ -582,7 +582,7 @@ Layout::renderHeader('top', '', true);
         <?php endif; ?>
       <?php endforeach; ?>
     </div>
-    <p class="pricing-note">すべてのプランで10日間無料でお試しいただけます。</p>
+    <p class="pricing-note">すべてのプランで10日間無料でお試しいただけます。<br>ご両親お二人など、複数の利用者様分を後からマイページで追加することもできます(利用者様ごとにプランをお選びいただけます)。</p>
   </div>
 </section>
 <?php endif; ?>
