@@ -30,7 +30,7 @@ Layout::renderHeader('about', 'TAYORIについて', true);
   .section-head p { color:var(--text-muted); line-height:1.8; margin:0; font-size:0.98rem; }
   .section-head .eyebrow {
     display:flex; align-items:center; justify-content:center; gap:12px;
-    margin:0 0 12px; font-weight:bold; font-size:0.8rem; letter-spacing:0.16em;
+    margin:0 0 6px; font-weight:bold; font-size:0.95rem; letter-spacing:0.14em;
     color:var(--accent);
   }
   .section-head .eyebrow::before, .section-head .eyebrow::after {
