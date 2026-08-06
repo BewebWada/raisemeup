@@ -199,12 +199,14 @@ PROMPT;
     // $modelOverrideを渡すと$this->modelの代わりにそちらを使う(原稿対応モード用)
     private function callAndParse(array $systemPrompt, array $messages, int $attempt, ?string $modelOverride = null): ?array
     {
+        // documentModel(Sonnet)は画像入力+thinkingで生成に時間がかかり、通常会話用Haikuの10秒では
+        // 頻繁にタイムアウトする(実機で確認済み)ため、モデル上書き時は長めのタイムアウトを使う
         $ch = curl_init('https://api.anthropic.com/v1/messages');
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => 10,
+            CURLOPT_TIMEOUT => $modelOverride !== null ? 30 : 10,
             CURLOPT_HTTPHEADER => [
                 'Content-Type: application/json',
                 'x-api-key: ' . $this->apiKey,

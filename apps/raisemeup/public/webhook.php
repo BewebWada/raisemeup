@@ -1,4 +1,8 @@
 <?php
+// 原稿対応モード(claude-sonnet-5、画像+thinkingで生成に時間がかかる)がcurlタイムアウト30秒×2回
+// リトライで最大60秒かかりうるため、PHPのデフォルトmax_execution_time(30秒)を引き上げておく
+set_time_limit(90);
+
 require_once __DIR__ . '/../src/Config.php';
 require_once __DIR__ . '/../src/LineClient.php';
 require_once __DIR__ . '/../src/ClaudeClient.php';
