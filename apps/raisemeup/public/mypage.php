@@ -405,7 +405,7 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
   .theme-delete-btn:hover { background:#ddd; }
   .doc-detail-btn { margin:0; padding:0; background:none; border:none; color:var(--text); font:inherit; text-align:left; text-decoration:underline; text-underline-offset:2px; cursor:pointer; flex:1; }
   .doc-detail-btn:hover { color:var(--brand-dark); background:none; }
-  dialog.doc-dialog { max-width:520px; width:90vw; border:none; border-radius:var(--radius-lg); padding:24px; box-shadow:0 8px 32px rgba(0,0,0,0.2); }
+  dialog.doc-dialog { position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); margin:0; max-width:520px; max-height:80vh; width:90vw; overflow-y:auto; border:none; border-radius:var(--radius-lg); padding:24px; box-shadow:0 8px 32px rgba(0,0,0,0.2); }
   dialog.doc-dialog::backdrop { background:rgba(61,58,53,0.45); }
   dialog.doc-dialog h3 { margin:0 0 4px; font-size:0.95rem; color:var(--brand-dark); }
   dialog.doc-dialog .doc-dialog-date { color:#999; font-size:0.82rem; margin-bottom:14px; }
