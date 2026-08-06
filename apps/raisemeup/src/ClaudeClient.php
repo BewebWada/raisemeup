@@ -232,7 +232,7 @@ PROMPT;
         }
 
         $data = json_decode($response, true);
-        $text = $data['content'][0]['text'] ?? '';
+        $text = self::extractResponseText($data);
         $stopReason = $data['stop_reason'] ?? 'unknown';
 
         $parsed = $this->extractJson($text);
@@ -251,6 +251,19 @@ PROMPT;
 
         error_log("Claude API reply JSON parse failed (attempt {$attempt}, stop_reason={$stopReason}): " . substr($text, 0, 1500));
         return null;
+    }
+
+    // Messages APIのレスポンスからテキスト本文を取り出す。content[0]が常にテキストとは限らない
+    // (例: claude-sonnet-5はthinkingブロックをcontent[0]に挿入し、実際の応答はcontent[1]以降になる)。
+    // type=textの最初のブロックを探して使う
+    private static function extractResponseText(?array $data): string
+    {
+        foreach ($data['content'] ?? [] as $block) {
+            if (($block['type'] ?? '') === 'text') {
+                return $block['text'] ?? '';
+            }
+        }
+        return '';
     }
 
     // Claudeが指示に反して前置き文やコードフェンスを付けてくる場合に備え、
@@ -352,7 +365,7 @@ PROMPT;
         }
 
         $data = json_decode($response, true);
-        $text = trim($data['content'][0]['text'] ?? '');
+        $text = trim(self::extractResponseText($data));
         return $text !== '' ? $text : self::FALLBACK_REPLY;
     }
 
@@ -613,7 +626,7 @@ PROMPT;
         }
 
         $data = json_decode($response, true);
-        return trim((string) ($data['content'][0]['text'] ?? ''));
+        return trim((string) self::extractResponseText($data));
     }
 
     /**
@@ -682,7 +695,7 @@ PROMPT;
         }
 
         $data = json_decode($response, true);
-        $text = trim((string) ($data['content'][0]['text'] ?? ''));
+        $text = trim((string) self::extractResponseText($data));
         $parsed = $this->extractJson($text);
         $items = is_array($parsed['items'] ?? null) ? $parsed['items'] : [];
 
@@ -762,7 +775,7 @@ PROMPT;
         }
 
         $data = json_decode($response, true);
-        return trim((string) ($data['content'][0]['text'] ?? ''));
+        return trim((string) self::extractResponseText($data));
     }
 
     /**
@@ -886,7 +899,7 @@ PROMPT;
         }
 
         $data = json_decode($response, true);
-        $text = trim((string) ($data['content'][0]['text'] ?? ''));
+        $text = trim((string) self::extractResponseText($data));
         if ($text === '') {
             error_log("Claude generateDemoReply: empty text (attempt {$attempt})");
             return null;
@@ -978,7 +991,7 @@ PROMPT;
         }
 
         $data = json_decode($response, true);
-        return trim((string) ($data['content'][0]['text'] ?? ''));
+        return trim((string) self::extractResponseText($data));
     }
 
     /**
@@ -1035,7 +1048,7 @@ PROMPT;
         }
 
         $data = json_decode($response, true);
-        return trim((string) ($data['content'][0]['text'] ?? ''));
+        return trim((string) self::extractResponseText($data));
     }
 
     // 会話の一部の発言(代名詞の指示先が曖昧、複数の解釈がありうる等)を根拠にする要約種別に付加する注意書き。
@@ -1120,7 +1133,7 @@ PROMPT;
         }
 
         $data = json_decode($response, true);
-        return trim($data['content'][0]['text'] ?? '');
+        return trim(self::extractResponseText($data));
     }
 
     /**
@@ -1183,7 +1196,7 @@ PROMPT;
         }
 
         $data = json_decode($response, true);
-        $text = $data['content'][0]['text'] ?? '';
+        $text = self::extractResponseText($data);
         $parsed = $this->extractJson($text);
         if ($parsed === null || !isset($parsed['self_review'])) {
             error_log('Claude reviewConversation: JSON parse failed - ' . substr($text, 0, 1000));
@@ -1271,7 +1284,7 @@ PROMPT;
         }
 
         $data = json_decode($response, true);
-        return trim($data['content'][0]['text'] ?? '');
+        return trim(self::extractResponseText($data));
     }
 
     // SummaryRepository::getAllForUserの4種類の要約のうち、実質的に中身がある(プレースホルダ文言のままではない)
@@ -1528,6 +1541,8 @@ reply_textとは別に、LINEスタンプを1つだけ添えて送ることが�
   "destination": null,
   "travel_mode": null,
   "medication_confirmed": [],
+  "document_text": null,
+  "document_confirmation_note": null,
   "family_message_delivered": false,
   "topics_touched": [],
   "prompt_reply_needed": false
