@@ -51,8 +51,7 @@ Layout::renderHeader('about', 'TAYORIについて', true);
     grid-template-areas:
       "hero b c"
       "d    e g"
-      "h    i ."
-      "f    f f";
+      "h    i j";
   }
   .bento-card {
     position:relative; overflow:hidden; border-radius:26px; padding:26px 24px;
@@ -71,7 +70,7 @@ Layout::renderHeader('about', 'TAYORIについて', true);
   }
   .bento-card .icon-ghost svg { width:100%; height:100%; display:block; }
   .bento-card:hover .icon-ghost { transform:rotate(-3deg) scale(1.05); opacity:0.18; }
-  .bento-card:not(.banner) .icon-ghost { width:118px; height:118px; }
+  .bento-card .icon-ghost { width:118px; height:118px; }
 
   .bento-card .icon {
     width:46px; height:46px; border-radius:50%; display:flex; align-items:center; justify-content:center;
@@ -107,21 +106,6 @@ Layout::renderHeader('about', 'TAYORIについて', true);
   .bento-card.hero .icon-ghost { color:#fff; opacity:0.1; }
   .bento-card.hero:hover .icon-ghost { opacity:0.13; }
 
-  .bento-card.banner {
-    grid-area:f; flex-direction:row; align-items:center; gap:22px; padding:28px 32px;
-    background:var(--surface); box-shadow:0 2px 16px rgba(61,58,53,0.05);
-  }
-  .bento-card.banner .icon { margin-bottom:0; background:var(--card-peach); color:var(--accent); }
-  .bento-card.banner .text { max-width:600px; }
-  .bento-card.banner .text strong { margin-bottom:4px; }
-  .bento-card.banner .text p { color:var(--text-muted); }
-  .bento-card.banner .text .banner-note { margin-top:8px; font-size:0.78rem; color:#a08d78; }
-  .bento-card.banner .icon-ghost {
-    width:150px; height:150px; top:50%; right:30px; left:auto; bottom:auto;
-    transform:translateY(-50%) rotate(-10deg); color:var(--accent);
-  }
-  .bento-card.banner:hover .icon-ghost { transform:translateY(-50%) rotate(-3deg) scale(1.05); }
-
   .bento-b { grid-area:b; }
   .bento-c { grid-area:c; }
   .bento-d { grid-area:d; }
@@ -129,13 +113,13 @@ Layout::renderHeader('about', 'TAYORIについて', true);
   .bento-g { grid-area:g; }
   .bento-h { grid-area:h; }
   .bento-i { grid-area:i; }
+  .bento-j { grid-area:j; }
 
   @media (max-width: 860px) {
-    .bento { grid-template-columns:repeat(2, 1fr); grid-template-areas:"hero b" "c d" "e g" "h i" "f f"; }
+    .bento { grid-template-columns:repeat(2, 1fr); grid-template-areas:"hero b" "c d" "e g" "h i" "j ."; }
   }
   @media (max-width: 560px) {
-    .bento { grid-template-columns:1fr; grid-template-areas:"hero" "b" "c" "d" "e" "g" "h" "i" "f"; }
-    .bento-card.banner { flex-direction:column; align-items:flex-start; text-align:left; }
+    .bento { grid-template-columns:1fr; grid-template-areas:"hero" "b" "c" "d" "e" "g" "h" "i" "j"; }
   }
 
   .risk-band { background:var(--surface); border-radius:32px; padding:40px 32px; box-shadow:0 2px 16px rgba(61,58,53,0.05); }
@@ -296,16 +280,14 @@ Layout::renderHeader('about', 'TAYORIについて', true);
       <strong>絵文字やスタンプでのやり取りも</strong>
       <p>文字を打つのが億劫な時は、LINEスタンプや絵文字だけでも気持ちが伝わります。TAYORIも気持ちが動いた時には、スタンプで応えることがあります。</p>
     </div>
-    <div class="bento-card banner">
+    <div class="bento-card mint bento-j">
       <span class="icon-ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></span>
       <div class="icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
       </div>
-      <div class="text">
-        <strong>ご家族にも、無理なく伝わる</strong>
-        <p>週に一度、「今週の様子」をそっとダイジェストでお届けします(全プラン共通)。「TAYORIサポート」から届くのはその程度で、日々の会話をいちいちのぞくことはありません。</p>
-        <p class="banner-note">※ 気になる兆候があった時のリアルタイムな見守りアラートは、寄り添いスタンダード以上でご利用いただけます。</p>
-      </div>
+      <strong>ご家族にも、無理なく伝わる</strong>
+      <p>週に一度、「今週の様子」をそっとダイジェストでお届けします(全プラン共通)。「TAYORIサポート」から届くのはその程度で、日々の会話をいちいちのぞくことはありません。</p>
+      <p class="card-note">※ 気になる兆候があった時のリアルタイムな見守りアラートは、寄り添いスタンダード以上でご利用いただけます。</p>
     </div>
   </div>
 </section>
