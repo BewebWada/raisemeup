@@ -188,6 +188,13 @@ class Layout
     .menu-backdrop.open { opacity:1; pointer-events:auto; }
   }
   main { max-width:1120px; margin:0 auto; padding:32px 20px 60px; }
+  .breadcrumb { font-size:0.82rem; color:var(--text-muted); margin:0 0 24px; }
+  .breadcrumb ol { display:flex; flex-wrap:wrap; align-items:center; gap:6px; list-style:none; margin:0; padding:0; }
+  .breadcrumb a { color:var(--text-muted); text-decoration:none; }
+  .breadcrumb a:hover { color:var(--text); text-decoration:underline; }
+  .breadcrumb li { display:flex; align-items:center; gap:6px; }
+  .breadcrumb li:not(:last-child)::after { content:"/"; color:#c9c2b3; }
+  .breadcrumb li[aria-current="page"] { color:var(--text); font-weight:bold; }
   .site-footer { border-top:1px solid #ece7dc; margin-top:40px; }
   .site-footer .inner { max-width:1120px; margin:0 auto; padding:28px 20px 24px; font-size:0.85rem; color:var(--text-muted); }
   .site-footer a { color:var(--text-muted); text-decoration:none; }
@@ -245,6 +252,22 @@ class Layout
 })();
 </script>
 <main>
+<?php if ($activePage !== 'top'): ?>
+<nav class="breadcrumb" aria-label="パンくずリスト">
+  <ol>
+    <li><a href="/">ホーム</a></li>
+    <li aria-current="page"><?= htmlspecialchars($pageTitle, ENT_QUOTES, 'UTF-8') ?></li>
+  </ol>
+</nav>
+<script type="application/ld+json"><?= json_encode([
+    '@context' => 'https://schema.org',
+    '@type' => 'BreadcrumbList',
+    'itemListElement' => [
+        ['@type' => 'ListItem', 'position' => 1, 'name' => 'ホーム', 'item' => $baseUrl . '/'],
+        ['@type' => 'ListItem', 'position' => 2, 'name' => $pageTitle, 'item' => $currentUrl],
+    ],
+], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?></script>
+<?php endif; ?>
         <?php
     }
 
