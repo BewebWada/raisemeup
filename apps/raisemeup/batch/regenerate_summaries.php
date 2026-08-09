@@ -15,7 +15,7 @@ Env::load(__DIR__ . '/../../../.env');
 
 $dbConfig = require __DIR__ . '/../db/config.php';
 $pdo = Database::connect($dbConfig);
-$claude = new ClaudeClient(Config::get('ANTHROPIC_API_KEY'), Config::get('CLAUDE_MODEL'));
+$claude = ClaudeClient::fromConfig();
 $summaryRepo = new SummaryRepository($pdo);
 $medicationLogRepo = new MedicationLogRepository($pdo);
 $insightRepo = new ConversationInsightRepository($pdo);

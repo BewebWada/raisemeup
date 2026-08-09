@@ -83,7 +83,7 @@ $pdo = Database::connect($dbConfig);
 $lineClient = new LineClient(Config::get('LINE_CHANNEL_SECRET'), Config::get('LINE_CHANNEL_ACCESS_TOKEN'));
 // 家族への通知は「TAYORIサポート」チャネル(利用者本人の会話用アカウントとは別)から送る
 $familyLineClient = new LineClient(Config::get('LINE_FAMILY_CHANNEL_SECRET'), Config::get('LINE_FAMILY_CHANNEL_ACCESS_TOKEN'));
-$claudeClient = new ClaudeClient(Config::get('ANTHROPIC_API_KEY'), Config::get('CLAUDE_MODEL'));
+$claudeClient = ClaudeClient::fromConfig();
 $summaryRepo = new SummaryRepository($pdo);
 $topicCoverageRepo = new TopicCoverageRepository($pdo);
 $userRepo = new UserRepository($pdo);

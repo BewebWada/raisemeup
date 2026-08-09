@@ -41,7 +41,7 @@ $handler = new ConversationHandler(
     $pdo,
     $lineClient,
     $familyLineClient,
-    new ClaudeClient(Config::get('ANTHROPIC_API_KEY'), Config::get('CLAUDE_MODEL'), Config::get('CLAUDE_DOCUMENT_MODEL', 'claude-sonnet-5'))
+    ClaudeClient::fromConfig()
 );
 
 foreach ($events as $event) {

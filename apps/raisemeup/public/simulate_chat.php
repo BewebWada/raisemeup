@@ -119,7 +119,7 @@ if ((int) $session['turn_count'] >= MAX_TURNS_PER_SESSION) {
     ]);
 }
 
-$claudeClient = new ClaudeClient(Config::get('ANTHROPIC_API_KEY'), Config::get('CLAUDE_MODEL'));
+$claudeClient = ClaudeClient::fromConfig();
 $isLastTurn = ((int) $session['turn_count'] + 1) >= MAX_TURNS_PER_SESSION;
 $result = $claudeClient->generateDemoReply($history, $message, $knownSchedules, $isLastTurn);
 

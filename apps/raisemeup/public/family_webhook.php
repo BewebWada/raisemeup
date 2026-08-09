@@ -42,7 +42,7 @@ $familyRepo = new FamilyAccountRepository($pdo);
 $familyMessageRepo = new FamilyMessageRepository($pdo);
 $familyThemeRepo = new FamilyThemeRepository($pdo);
 $subscriptionRepo = new SubscriptionRepository($pdo);
-$claudeClient = new ClaudeClient(Config::get('ANTHROPIC_API_KEY'), Config::get('CLAUDE_MODEL'));
+$claudeClient = ClaudeClient::fromConfig();
 
 foreach ($events as $event) {
     if (($event['type'] ?? '') === 'follow') {

@@ -3,12 +3,26 @@ require_once __DIR__ . '/ScheduleRepository.php';
 require_once __DIR__ . '/MedicationLogRepository.php';
 require_once __DIR__ . '/SummaryRepository.php';
 require_once __DIR__ . '/TopicCoverageRepository.php';
+require_once __DIR__ . '/Config.php';
+require_once __DIR__ . '/AiBackend.php';
+require_once __DIR__ . '/AiBackendException.php';
+require_once __DIR__ . '/AnthropicBackend.php';
+require_once __DIR__ . '/OpenAiBackend.php';
 
 class ClaudeClient
 {
-    private string $apiKey;
+    private AiBackend $backend;
     private string $model;
     private string $documentModel;
+    // answerWithWebSearch専用。AI_PROVIDER=openaiの場合でも、Anthropicサーバー側web_searchツールは
+    // OpenAI側に1:1の代替が無いため、このメソッドだけ常にAnthropic経路を使う(下記コンストラクタ参照)。
+    // $modelにはOpenAIモデル名が入りうる(AI_PROVIDER=openaiの場合)ため、web検索用に別途Anthropicモデル名を持つ
+    private AiBackend $webSearchBackend;
+    private string $webSearchModel;
+    // generateImageReplyの原稿対応モード専用。OpenAI利用時、Flexティア(低優先度)は画像+推論の
+    // 重いリクエストで頻繁にタイムアウトすることを実機で確認したため、原稿対応モードだけは
+    // Flexを使わないバックエンドに固定できるようにする(下記コンストラクタ参照)
+    private AiBackend $documentBackend;
 
     private const FALLBACK_REPLY = 'すみません、少し聞き取れませんでした。もう一度お願いできますか?';
 
@@ -56,11 +70,49 @@ PROMPT;
     // 原稿の書き写しは薬の誤読が実害に繋がりうる上、Haikuでは「重複だから省略」「不確かな箇所を
     // 自然な文に補完してしまう」といった不安定な挙動が実機テストで確認されたため、より高精度な
     // モデルに切り替える。1日5枚上限で呼び出し回数が頭打ちなので、コスト影響は限定的
-    public function __construct(string $apiKey, string $model, string $documentModel = 'claude-sonnet-5')
+    //
+    // $backend: 実際にAPIへ送信するAiBackend実装(AnthropicBackend/OpenAiBackend)。プロンプト構築ロジック
+    //   (buildSystemPrompt等)はプロバイダを意識せず、Anthropic Messages API形式のsystem/messagesを
+    //   組み立てるだけでよい。$webSearchBackend/$webSearchModelを省略した場合は$backend/$modelをそのまま使う
+    //   (=AI_PROVIDER=anthropicの通常運用では同じAnthropicBackend・モデル名を両方に使い回す)。
+    public function __construct(AiBackend $backend, string $model, string $documentModel = 'claude-sonnet-5', ?AiBackend $webSearchBackend = null, ?string $webSearchModel = null, ?AiBackend $documentBackend = null)
     {
-        $this->apiKey = $apiKey;
+        $this->backend = $backend;
         $this->model = $model;
         $this->documentModel = $documentModel;
+        $this->webSearchBackend = $webSearchBackend ?? $backend;
+        $this->webSearchModel = $webSearchModel ?? $model;
+        $this->documentBackend = $documentBackend ?? $backend;
+    }
+
+    // 6箇所の呼び出し元(webhook.php等)はこのファクトリ経由でインスタンス化する。
+    // AI_PROVIDER(既定anthropic)を見てバックエンドを切り替える。「もしもの時」用にOpenAIへ切り替えても、
+    // answerWithWebSearchだけは常にAnthropicBackend・Anthropicモデル(ANTHROPIC_API_KEY/CLAUDE_MODEL)を使い続ける
+    public static function fromConfig(): self
+    {
+        $provider = Config::get('AI_PROVIDER', 'anthropic');
+        $anthropicBackend = new AnthropicBackend((string) Config::get('ANTHROPIC_API_KEY'));
+        $anthropicModel = (string) Config::get('CLAUDE_MODEL');
+
+        if ($provider === 'openai') {
+            $openaiApiKey = (string) Config::get('OPENAI_API_KEY');
+            return new self(
+                new OpenAiBackend($openaiApiKey, Config::get('OPENAI_SERVICE_TIER')),
+                (string) Config::get('OPENAI_MODEL'),
+                (string) Config::get('OPENAI_DOCUMENT_MODEL', Config::get('OPENAI_MODEL')),
+                $anthropicBackend,
+                $anthropicModel
+                // 検証のため一時的に原稿対応モードもFlex解除の特別扱いを外している(documentBackend省略時は
+                // $backendを使い回す=通常会話と同じくFlex込みになる)。Flexで再びタイムアウトするようなら
+                // 6引数目に new OpenAiBackend($openaiApiKey, null) を戻すこと
+            );
+        }
+
+        return new self(
+            $anthropicBackend,
+            $anthropicModel,
+            (string) Config::get('CLAUDE_DOCUMENT_MODEL', 'claude-sonnet-5')
+        );
     }
 
 
@@ -95,7 +147,7 @@ PROMPT;
         // 同一入力でも再試行すると成功することを確認済みなので、失敗時は1回だけ取り直す
         // (フォールバック文言を毎回利用者に返すより、多少レイテンシが増えても正確な応答を優先する)。
         for ($attempt = 1; $attempt <= 2; $attempt++) {
-            $parsed = $this->callAndParse($systemPrompt, $messages, $attempt);
+            $parsed = $this->callAndParse($systemPrompt, $messages, $attempt, null, 'generateReplyAndExtract');
             if ($parsed !== null) {
                 return $parsed;
             }
@@ -143,10 +195,14 @@ PROMPT;
         ];
 
         // 原稿対応モードは文字の誤読・補完が実害に繋がりうるため、通常会話用のHaikuより高精度な
-        // documentModelで呼ぶ(コンストラクタのコメント参照)
+        // documentModelで呼ぶ(コンストラクタのコメント参照)。またOpenAI利用時、Flexティアは低優先度で
+        // 処理されるため画像+推論の重いリクエストで頻繁にタイムアウトすることを実機で確認しており、
+        // documentBackendでは通常会話とは別にFlexを使わないバックエンドに固定できるようにしている
         $callModel = $documentModeEnabled ? $this->documentModel : null;
+        $label = $documentModeEnabled ? 'generateImageReply(document mode)' : 'generateImageReply';
+        $callBackend = $documentModeEnabled ? $this->documentBackend : null;
         for ($attempt = 1; $attempt <= 2; $attempt++) {
-            $parsed = $this->callAndParse($systemPrompt, $messages, $attempt, $callModel);
+            $parsed = $this->callAndParse($systemPrompt, $messages, $attempt, $callModel, $label, $callBackend);
             if ($parsed !== null) {
                 return $parsed;
             }
@@ -184,7 +240,7 @@ PROMPT;
         $messages[] = ['role' => 'user', 'content' => '(写真を送信しました)'];
 
         for ($attempt = 1; $attempt <= 2; $attempt++) {
-            $parsed = $this->callAndParse($systemPrompt, $messages, $attempt);
+            $parsed = $this->callAndParse($systemPrompt, $messages, $attempt, null, 'generateImageUnavailableReply');
             if ($parsed !== null) {
                 return $parsed;
             }
@@ -197,43 +253,22 @@ PROMPT;
     // $systemPromptはbuildSystemPromptが返す2ブロック配列(静的+動的、静的側にcache_control付き)。
     // そのままjson_encodeに渡すだけでAPIが期待する配列形式のsystemフィールドになる。
     // $modelOverrideを渡すと$this->modelの代わりにそちらを使う(原稿対応モード用)
-    private function callAndParse(array $systemPrompt, array $messages, int $attempt, ?string $modelOverride = null): ?array
+    // $logLabel: generateReplyAndExtract/generateImageReply/generateImageUnavailableReplyの3箇所で共有しているため、
+    // ログで区別できるよう呼び出し元から渡してもらう
+    private function callAndParse(array $systemPrompt, array $messages, int $attempt, ?string $modelOverride = null, string $logLabel = 'callAndParse', ?AiBackend $backendOverride = null): ?array
     {
         // documentModel(Sonnet)は画像入力+thinkingで生成に時間がかかり、通常会話用Haikuの10秒では
         // 頻繁にタイムアウトする(実機で確認済み)ため、モデル上書き時は長めのタイムアウトを使う
-        $ch = curl_init('https://api.anthropic.com/v1/messages');
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => $modelOverride !== null ? 30 : 10,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'x-api-key: ' . $this->apiKey,
-                'anthropic-version: 2023-06-01',
-            ],
-            CURLOPT_POSTFIELDS => json_encode([
-                'model' => $modelOverride ?? $this->model,
-                'max_tokens' => 1024,
-                'system' => $systemPrompt,
-                'messages' => $messages,
-            ], JSON_UNESCAPED_UNICODE),
-        ]);
-        $response = curl_exec($ch);
-        $curlError = curl_error($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($response === false) {
-            error_log("Claude API call failed (attempt {$attempt}): curl error - {$curlError}");
-            return null;
-        }
-        if ($httpCode !== 200) {
-            error_log("Claude API call failed (attempt {$attempt}): HTTP {$httpCode} - {$response}");
+        $data = $this->callApi([
+            'model' => $modelOverride ?? $this->model,
+            'max_tokens' => 1024,
+            'system' => $systemPrompt,
+            'messages' => $messages,
+        ], $modelOverride !== null ? 30 : 10, "{$logLabel}(attempt {$attempt})", $backendOverride);
+        if ($data === null) {
             return null;
         }
 
-        $data = json_decode($response, true);
         $text = self::extractResponseText($data);
         $stopReason = $data['stop_reason'] ?? 'unknown';
 
@@ -266,6 +301,20 @@ PROMPT;
             }
         }
         return '';
+    }
+
+    // 旧: 各メソッドがそれぞれcurl_init~curl_closeを個別に持っていた(12箇所、いずれもヘッダー・
+    // エラーハンドリングは同一)。ここに集約し、実際の送信先(Anthropic/OpenAI)はAiBackend実装に委譲する。
+    // $backendOverrideを渡すと$this->backendの代わりにそちらを使う(answerWithWebSearch専用)。
+    // 戻り値はAnthropic Messages APIレスポンス形式の配列(失敗時はnull、呼び出し元がフォールバックする)
+    private function callApi(array $body, int $timeoutSeconds, string $logLabel, ?AiBackend $backendOverride = null): ?array
+    {
+        try {
+            return ($backendOverride ?? $this->backend)->send($body, $timeoutSeconds);
+        } catch (AiBackendException $e) {
+            error_log("Claude API ({$logLabel}) failed: " . $e->getMessage());
+            return null;
+        }
     }
 
     // Claudeが指示に反して前置き文やコードフェンスを付けてくる場合に備え、
@@ -334,39 +383,16 @@ PROMPT;
         $messages = $conversationHistory;
         $messages[] = ['role' => 'user', 'content' => $userMessage];
 
-        $ch = curl_init('https://api.anthropic.com/v1/messages');
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => 10,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'x-api-key: ' . $this->apiKey,
-                'anthropic-version: 2023-06-01',
-            ],
-            CURLOPT_POSTFIELDS => json_encode([
-                'model' => $this->model,
-                'max_tokens' => 300,
-                'system' => $systemPrompt,
-                'messages' => $messages,
-            ], JSON_UNESCAPED_UNICODE),
-        ]);
-        $response = curl_exec($ch);
-        $curlError = curl_error($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($response === false) {
-            error_log("Claude answerWithLookup failed: curl error - {$curlError}");
-            return self::FALLBACK_REPLY;
-        }
-        if ($httpCode !== 200) {
-            error_log("Claude answerWithLookup failed: HTTP {$httpCode} - {$response}");
+        $data = $this->callApi([
+            'model' => $this->model,
+            'max_tokens' => 300,
+            'system' => $systemPrompt,
+            'messages' => $messages,
+        ], 10, 'answerWithLookup');
+        if ($data === null) {
             return self::FALLBACK_REPLY;
         }
 
-        $data = json_decode($response, true);
         $text = trim(self::extractResponseText($data));
         return $text !== '' ? $text : self::FALLBACK_REPLY;
     }
@@ -397,42 +423,21 @@ PROMPT;
         $messages = $conversationHistory;
         $messages[] = ['role' => 'user', 'content' => $userMessage];
 
-        $ch = curl_init('https://api.anthropic.com/v1/messages');
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => 20,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'x-api-key: ' . $this->apiKey,
-                'anthropic-version: 2023-06-01',
+        // 常にAnthropic経路(web_searchはOpenAI側に1:1の代替が無いため、$this->backendがOpenAiBackendでも
+        // ここだけはwebSearchBackend/webSearchModelでAnthropicに固定する)
+        $data = $this->callApi([
+            'model' => $this->webSearchModel,
+            'max_tokens' => 400,
+            'system' => $systemPrompt,
+            'messages' => $messages,
+            'tools' => [
+                ['type' => 'web_search_20250305', 'name' => 'web_search', 'max_uses' => 1],
             ],
-            CURLOPT_POSTFIELDS => json_encode([
-                'model' => $this->model,
-                'max_tokens' => 400,
-                'system' => $systemPrompt,
-                'messages' => $messages,
-                'tools' => [
-                    ['type' => 'web_search_20250305', 'name' => 'web_search', 'max_uses' => 1],
-                ],
-            ], JSON_UNESCAPED_UNICODE),
-        ]);
-        $response = curl_exec($ch);
-        $curlError = curl_error($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($response === false) {
-            error_log("Claude answerWithWebSearch failed: curl error - {$curlError}");
-            return self::FALLBACK_REPLY;
-        }
-        if ($httpCode !== 200) {
-            error_log("Claude answerWithWebSearch failed: HTTP {$httpCode} - {$response}");
+        ], 20, 'answerWithWebSearch', $this->webSearchBackend);
+        if ($data === null) {
             return self::FALLBACK_REPLY;
         }
 
-        $data = json_decode($response, true);
         // Web検索ツール使用時はcontentに検索ツール呼び出し・検索結果のブロックも混ざって返ってくるため、
         // content[0]決め打ちではなくtype="text"のブロックだけを拾って繋げる
         $textParts = [];
@@ -595,39 +600,16 @@ PROMPT;
 - 出力はメッセージ本文のみ。前置き・カギカッコ・署名は不要
 PROMPT;
 
-        $ch = curl_init('https://api.anthropic.com/v1/messages');
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => 15,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'x-api-key: ' . $this->apiKey,
-                'anthropic-version: 2023-06-01',
-            ],
-            CURLOPT_POSTFIELDS => json_encode([
-                'model' => $this->model,
-                'max_tokens' => 200,
-                'system' => $systemPrompt,
-                'messages' => [['role' => 'user', 'content' => '話しかけてください。']],
-            ], JSON_UNESCAPED_UNICODE),
-        ]);
-        $response = curl_exec($ch);
-        $curlError = curl_error($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($response === false) {
-            error_log("Claude generateProactiveMessage failed: curl error - {$curlError}");
-            return '';
-        }
-        if ($httpCode !== 200) {
-            error_log("Claude generateProactiveMessage failed: HTTP {$httpCode} - {$response}");
+        $data = $this->callApi([
+            'model' => $this->model,
+            'max_tokens' => 200,
+            'system' => $systemPrompt,
+            'messages' => [['role' => 'user', 'content' => '話しかけてください。']],
+        ], 15, 'generateProactiveMessage');
+        if ($data === null) {
             return '';
         }
 
-        $data = json_decode($response, true);
         return trim((string) self::extractResponseText($data));
     }
 
@@ -664,39 +646,16 @@ PROMPT;
 {"items": ["1つ目の自己紹介", "2つ目の自己紹介"]}
 PROMPT;
 
-        $ch = curl_init('https://api.anthropic.com/v1/messages');
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => 15,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'x-api-key: ' . $this->apiKey,
-                'anthropic-version: 2023-06-01',
-            ],
-            CURLOPT_POSTFIELDS => json_encode([
-                'model' => $this->model,
-                'max_tokens' => 300,
-                'system' => $systemPrompt,
-                'messages' => [['role' => 'user', 'content' => '自己紹介を作ってください。']],
-            ], JSON_UNESCAPED_UNICODE),
-        ]);
-        $response = curl_exec($ch);
-        $curlError = curl_error($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($response === false) {
-            error_log("Claude generateCompanionPersona failed: curl error - {$curlError}");
-            return [];
-        }
-        if ($httpCode !== 200) {
-            error_log("Claude generateCompanionPersona failed: HTTP {$httpCode} - {$response}");
+        $data = $this->callApi([
+            'model' => $this->model,
+            'max_tokens' => 300,
+            'system' => $systemPrompt,
+            'messages' => [['role' => 'user', 'content' => '自己紹介を作ってください。']],
+        ], 15, 'generateCompanionPersona');
+        if ($data === null) {
             return [];
         }
 
-        $data = json_decode($response, true);
         $text = trim((string) self::extractResponseText($data));
         $parsed = $this->extractJson($text);
         $items = is_array($parsed['items'] ?? null) ? $parsed['items'] : [];
@@ -744,39 +703,16 @@ PROMPT;
         $messages = $conversationHistory;
         $messages[] = ['role' => 'user', 'content' => '(しばらく返信が無い状態です。この会話の流れを踏まえて、心配して声をかけてください。)'];
 
-        $ch = curl_init('https://api.anthropic.com/v1/messages');
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => 15,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'x-api-key: ' . $this->apiKey,
-                'anthropic-version: 2023-06-01',
-            ],
-            CURLOPT_POSTFIELDS => json_encode([
-                'model' => $this->model,
-                'max_tokens' => 200,
-                'system' => $systemPrompt,
-                'messages' => $messages,
-            ], JSON_UNESCAPED_UNICODE),
-        ]);
-        $response = curl_exec($ch);
-        $curlError = curl_error($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($response === false) {
-            error_log("Claude generateUrgentSilenceOpening failed: curl error - {$curlError}");
-            return '';
-        }
-        if ($httpCode !== 200) {
-            error_log("Claude generateUrgentSilenceOpening failed: HTTP {$httpCode} - {$response}");
+        $data = $this->callApi([
+            'model' => $this->model,
+            'max_tokens' => 200,
+            'system' => $systemPrompt,
+            'messages' => $messages,
+        ], 15, 'generateUrgentSilenceOpening');
+        if ($data === null) {
             return '';
         }
 
-        $data = json_decode($response, true);
         return trim((string) self::extractResponseText($data));
     }
 
@@ -868,39 +804,16 @@ PROMPT;
 
     private function callDemoAndParse(string $systemPrompt, array $messages, int $attempt): ?array
     {
-        $ch = curl_init('https://api.anthropic.com/v1/messages');
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => 15,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'x-api-key: ' . $this->apiKey,
-                'anthropic-version: 2023-06-01',
-            ],
-            CURLOPT_POSTFIELDS => json_encode([
-                'model' => $this->model,
-                'max_tokens' => 300,
-                'system' => $systemPrompt,
-                'messages' => $messages,
-            ], JSON_UNESCAPED_UNICODE),
-        ]);
-        $response = curl_exec($ch);
-        $curlError = curl_error($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($response === false) {
-            error_log("Claude generateDemoReply failed (attempt {$attempt}): curl error - {$curlError}");
-            return null;
-        }
-        if ($httpCode !== 200) {
-            error_log("Claude generateDemoReply failed (attempt {$attempt}): HTTP {$httpCode} - {$response}");
+        $data = $this->callApi([
+            'model' => $this->model,
+            'max_tokens' => 300,
+            'system' => $systemPrompt,
+            'messages' => $messages,
+        ], 15, "generateDemoReply(attempt {$attempt})");
+        if ($data === null) {
             return null;
         }
 
-        $data = json_decode($response, true);
         $text = trim((string) self::extractResponseText($data));
         if ($text === '') {
             error_log("Claude generateDemoReply: empty text (attempt {$attempt})");
@@ -960,39 +873,16 @@ PROMPT;
 - 出力はメッセージ本文のみ。前置き・カギカッコ・署名は不要
 PROMPT;
 
-        $ch = curl_init('https://api.anthropic.com/v1/messages');
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => 15,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'x-api-key: ' . $this->apiKey,
-                'anthropic-version: 2023-06-01',
-            ],
-            CURLOPT_POSTFIELDS => json_encode([
-                'model' => $this->model,
-                'max_tokens' => 200,
-                'system' => $systemPrompt,
-                'messages' => [['role' => 'user', 'content' => 'リマインドを送ってください。']],
-            ], JSON_UNESCAPED_UNICODE),
-        ]);
-        $response = curl_exec($ch);
-        $curlError = curl_error($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($response === false) {
-            error_log("Claude generateScheduleReminder failed: curl error - {$curlError}");
-            return '';
-        }
-        if ($httpCode !== 200) {
-            error_log("Claude generateScheduleReminder failed: HTTP {$httpCode} - {$response}");
+        $data = $this->callApi([
+            'model' => $this->model,
+            'max_tokens' => 200,
+            'system' => $systemPrompt,
+            'messages' => [['role' => 'user', 'content' => 'リマインドを送ってください。']],
+        ], 15, 'generateScheduleReminder');
+        if ($data === null) {
             return '';
         }
 
-        $data = json_decode($response, true);
         return trim((string) self::extractResponseText($data));
     }
 
@@ -1017,39 +907,16 @@ AIへの指示として使える短い言い回し(体言止めでなく「〜�
 {$rawMessage}
 PROMPT;
 
-        $ch = curl_init('https://api.anthropic.com/v1/messages');
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => 10,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'x-api-key: ' . $this->apiKey,
-                'anthropic-version: 2023-06-01',
-            ],
-            CURLOPT_POSTFIELDS => json_encode([
-                'model' => $this->model,
-                'max_tokens' => 150,
-                'system' => $systemPrompt,
-                'messages' => [['role' => 'user', 'content' => 'テーマを抽出してください。']],
-            ], JSON_UNESCAPED_UNICODE),
-        ]);
-        $response = curl_exec($ch);
-        $curlError = curl_error($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($response === false) {
-            error_log("Claude extractThemeText failed: curl error - {$curlError}");
-            return '';
-        }
-        if ($httpCode !== 200) {
-            error_log("Claude extractThemeText failed: HTTP {$httpCode} - {$response}");
+        $data = $this->callApi([
+            'model' => $this->model,
+            'max_tokens' => 150,
+            'system' => $systemPrompt,
+            'messages' => [['role' => 'user', 'content' => 'テーマを抽出してください。']],
+        ], 10, 'extractThemeText');
+        if ($data === null) {
             return '';
         }
 
-        $data = json_decode($response, true);
         return trim((string) self::extractResponseText($data));
     }
 
@@ -1102,39 +969,16 @@ PROMPT;
         $weekdays = ['日', '月', '火', '水', '木', '金', '土'];
         $nowText = $now->format('n月j日') . '(' . $weekdays[(int) $now->format('w')] . ') ' . $now->format('H:i');
 
-        $ch = curl_init('https://api.anthropic.com/v1/messages');
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => 20,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'x-api-key: ' . $this->apiKey,
-                'anthropic-version: 2023-06-01',
-            ],
-            CURLOPT_POSTFIELDS => json_encode([
-                'model' => $this->model,
-                'max_tokens' => 500,
-                'system' => "現在の日時は{$nowText}です。\n\n" . $instruction . "\n\n出力は要約本文のみにしてください。前置き・見出し・箇条書き記号は不要です。",
-                'messages' => [['role' => 'user', 'content' => $sourceText]],
-            ], JSON_UNESCAPED_UNICODE),
-        ]);
-        $response = curl_exec($ch);
-        $curlError = curl_error($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($response === false) {
-            error_log("Claude summarize({$summaryType}) failed: curl error - {$curlError}");
-            return '';
-        }
-        if ($httpCode !== 200) {
-            error_log("Claude summarize({$summaryType}) failed: HTTP {$httpCode} - {$response}");
+        $data = $this->callApi([
+            'model' => $this->model,
+            'max_tokens' => 500,
+            'system' => "現在の日時は{$nowText}です。\n\n" . $instruction . "\n\n出力は要約本文のみにしてください。前置き・見出し・箇条書き記号は不要です。",
+            'messages' => [['role' => 'user', 'content' => $sourceText]],
+        ], 20, "summarize({$summaryType})");
+        if ($data === null) {
             return '';
         }
 
-        $data = json_decode($response, true);
         return trim(self::extractResponseText($data));
     }
 
@@ -1165,39 +1009,16 @@ PROMPT;
             . "\n\n出力は必ず以下のJSON形式のみにしてください。前置き・Markdownのコードフェンスは不要です。"
             . "\n{\"self_review\": \"...\", \"insights\": [{\"type\": \"user_request\" | \"trouble\", \"content\": \"...\"}]}";
 
-        $ch = curl_init('https://api.anthropic.com/v1/messages');
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => 20,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'x-api-key: ' . $this->apiKey,
-                'anthropic-version: 2023-06-01',
-            ],
-            CURLOPT_POSTFIELDS => json_encode([
-                'model' => $this->model,
-                'max_tokens' => 800,
-                'system' => $system,
-                'messages' => [['role' => 'user', 'content' => $sourceText]],
-            ], JSON_UNESCAPED_UNICODE),
-        ]);
-        $response = curl_exec($ch);
-        $curlError = curl_error($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($response === false) {
-            error_log("Claude reviewConversation failed: curl error - {$curlError}");
-            return $empty;
-        }
-        if ($httpCode !== 200) {
-            error_log("Claude reviewConversation failed: HTTP {$httpCode} - {$response}");
+        $data = $this->callApi([
+            'model' => $this->model,
+            'max_tokens' => 800,
+            'system' => $system,
+            'messages' => [['role' => 'user', 'content' => $sourceText]],
+        ], 20, 'reviewConversation');
+        if ($data === null) {
             return $empty;
         }
 
-        $data = json_decode($response, true);
         $text = self::extractResponseText($data);
         $parsed = $this->extractJson($text);
         if ($parsed === null || !isset($parsed['self_review'])) {
@@ -1253,39 +1074,16 @@ PROMPT;
 - 出力はダイジェスト本文のみにすること。前置き・見出し・箇条書き記号は不要
 PROMPT;
 
-        $ch = curl_init('https://api.anthropic.com/v1/messages');
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => 20,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'x-api-key: ' . $this->apiKey,
-                'anthropic-version: 2023-06-01',
-            ],
-            CURLOPT_POSTFIELDS => json_encode([
-                'model' => $this->model,
-                'max_tokens' => 300,
-                'system' => $systemPrompt,
-                'messages' => [['role' => 'user', 'content' => $sourceText]],
-            ], JSON_UNESCAPED_UNICODE),
-        ]);
-        $response = curl_exec($ch);
-        $curlError = curl_error($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($response === false) {
-            error_log("Claude generateFamilyDigest failed: curl error - {$curlError}");
-            return '';
-        }
-        if ($httpCode !== 200) {
-            error_log("Claude generateFamilyDigest failed: HTTP {$httpCode} - {$response}");
+        $data = $this->callApi([
+            'model' => $this->model,
+            'max_tokens' => 300,
+            'system' => $systemPrompt,
+            'messages' => [['role' => 'user', 'content' => $sourceText]],
+        ], 20, 'generateFamilyDigest');
+        if ($data === null) {
             return '';
         }
 
-        $data = json_decode($response, true);
         return trim(self::extractResponseText($data));
     }
 
