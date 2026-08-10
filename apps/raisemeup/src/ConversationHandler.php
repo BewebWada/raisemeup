@@ -787,9 +787,11 @@ class ConversationHandler
             $this->notifyFamilyOfMessageDelivered((int) $user['id'], $this->familyFacingName($user));
         }
 
+        // 原稿対応モードでこの回に保存した書類のid。この回のschedulesが書類由来の場合、紐づけに使う
+        $documentTextId = null;
         if ($documentModeEnabled && !empty($result['document_text'])) {
             try {
-                $this->documentTextRepo->save((int) $user['id'], $conversationId, trim((string) $result['document_text']));
+                $documentTextId = $this->documentTextRepo->save((int) $user['id'], $conversationId, trim((string) $result['document_text']));
             } catch (Throwable $e) {
                 error_log('DocumentTextRepository::save failed: ' . $e->getMessage());
             }
@@ -799,7 +801,7 @@ class ConversationHandler
             $this->personRepo->upsert((int) $user['id'], $person, $conversationId);
         }
         foreach ($result['schedules'] ?? [] as $schedule) {
-            $this->scheduleRepo->upsert((int) $user['id'], $schedule, $conversationId);
+            $this->scheduleRepo->upsert((int) $user['id'], $schedule, $conversationId, $documentTextId);
         }
         foreach ($result['medication_confirmed'] ?? [] as $medicationTitle) {
             $medicationTitle = trim((string) $medicationTitle);

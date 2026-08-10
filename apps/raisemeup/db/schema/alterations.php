@@ -155,4 +155,12 @@ return [
     'pending_replies.sticker' => "ALTER TABLE pending_replies
         ADD COLUMN IF NOT EXISTS sticker_package_id VARCHAR(20) DEFAULT NULL COMMENT 'LINEスタンプのpackageId(送らない場合はNULL)' AFTER reply_text,
         ADD COLUMN IF NOT EXISTS sticker_id VARCHAR(20) DEFAULT NULL COMMENT 'LINEスタンプのstickerId(送らない場合はNULL)' AFTER sticker_package_id;",
+
+    // 原稿対応モードで読み取った書類(document_texts)と、そこから登録された予定(主に服薬)を紐づける。
+    // 外部キー制約はここでは付けない(ADD FOREIGN KEYは再実行時に重複エラーになり、このファイルの
+    // 「何度実行しても安全」という前提を満たせないため)。参照整合性はScheduleRepository側で担保する。
+    // 新規構築時はtables.phpのCREATE TABLE側でFOREIGN KEYが付く
+    'schedules.document_text_id' => "ALTER TABLE schedules
+        ADD COLUMN IF NOT EXISTS document_text_id BIGINT UNSIGNED DEFAULT NULL
+        COMMENT '原稿対応モードでこの予定の元になった書類(document_texts)。書類由来でない予定はNULL' AFTER source_conversation_id;",
 ];

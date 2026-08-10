@@ -138,7 +138,9 @@ class ScheduleRepository
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public function upsert(int $userId, array $schedule, int $conversationId): void
+    // $documentTextId: 原稿対応モードでこの回に読み取った書類(document_texts.id)。この予定がその書類に
+    // 由来する場合に渡す(通常のテキスト会話からの登録ではnullのまま)
+    public function upsert(int $userId, array $schedule, int $conversationId, ?int $documentTextId = null): void
     {
         $title = trim($schedule['title'] ?? '');
         if ($title === '') {
@@ -147,7 +149,7 @@ class ScheduleRepository
 
         $stmt = $this->pdo->prepare(
             "SELECT id, scheduled_at, scheduled_end_at, scheduled_date_text, location,
-                    recurrence_type, recurrence_weekday, recurrence_day_of_month, is_medication
+                    recurrence_type, recurrence_weekday, recurrence_day_of_month, is_medication, document_text_id
              FROM schedules
              WHERE user_id = ? AND title = ? AND status = 'upcoming'"
         );
@@ -180,10 +182,12 @@ class ScheduleRepository
             $recurrenceWeekday = $newRecurrenceType !== null ? $newRecurrenceWeekday : $existing['recurrence_weekday'];
             $recurrenceDayOfMonth = $newRecurrenceType !== null ? $newRecurrenceDayOfMonth : $existing['recurrence_day_of_month'];
 
-            // 今回言及されなかった項目(null)は既存の値を残す(古い情報で上書きしない)
+            // 今回言及されなかった項目(null)は既存の値を残す(古い情報で上書きしない)。
+            // document_text_idも同様、今回書類由来でない更新(例:時刻の口頭訂正)では既存の紐づけを残す
             $this->pdo->prepare(
                 'UPDATE schedules SET scheduled_at = ?, scheduled_end_at = ?, scheduled_date_text = ?, location = ?,
-                    recurrence_type = ?, recurrence_weekday = ?, recurrence_day_of_month = ?, is_medication = ?, source_conversation_id = ?
+                    recurrence_type = ?, recurrence_weekday = ?, recurrence_day_of_month = ?, is_medication = ?,
+                    source_conversation_id = ?, document_text_id = ?
                  WHERE id = ?'
             )->execute([
                 $scheduledAt ?? $existing['scheduled_at'],
@@ -195,6 +199,7 @@ class ScheduleRepository
                 $recurrenceDayOfMonth,
                 $isMedication,
                 $conversationId,
+                $documentTextId ?? $existing['document_text_id'],
                 $existing['id'],
             ]);
             return;
@@ -202,12 +207,12 @@ class ScheduleRepository
 
         $this->pdo->prepare(
             'INSERT INTO schedules (user_id, title, scheduled_at, scheduled_end_at, scheduled_date_text, location,
-                recurrence_type, recurrence_weekday, recurrence_day_of_month, is_medication, status, source_conversation_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "upcoming", ?)'
+                recurrence_type, recurrence_weekday, recurrence_day_of_month, is_medication, status, source_conversation_id, document_text_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "upcoming", ?, ?)'
         )->execute([
             $userId, $title, $scheduledAt, $scheduledEndAt, $dateText, $location,
             $newRecurrenceType ?? 'none', $newRecurrenceWeekday, $newRecurrenceDayOfMonth, $isMedication,
-            $conversationId,
+            $conversationId, $documentTextId,
         ]);
     }
 

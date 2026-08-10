@@ -127,11 +127,13 @@ return [
         reminder_sent           BOOLEAN NOT NULL DEFAULT FALSE COMMENT '前日リマインドの送信済みフラグ',
         same_day_reminder_sent  BOOLEAN NOT NULL DEFAULT FALSE COMMENT '当日朝リマインドの送信済みフラグ',
         source_conversation_id  BIGINT UNSIGNED DEFAULT NULL,
+        document_text_id        BIGINT UNSIGNED DEFAULT NULL COMMENT '原稿対応モードでこの予定の元になった書類(document_texts)。書類由来でない予定はNULL',
         created_at              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY (related_person_id) REFERENCES persons(id) ON DELETE SET NULL,
         FOREIGN KEY (source_conversation_id) REFERENCES conversations(id) ON DELETE SET NULL,
+        FOREIGN KEY (document_text_id) REFERENCES document_texts(id) ON DELETE SET NULL,
         INDEX idx_user_scheduled (user_id, scheduled_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='スケジュール(予定)';",
 
