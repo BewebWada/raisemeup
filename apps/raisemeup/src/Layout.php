@@ -209,6 +209,16 @@ class Layout
   .footer-sitemap { display:flex; flex-wrap:wrap; justify-content:center; gap:10px 28px; padding-bottom:20px; margin-bottom:16px; border-bottom:1px solid #ece7dc; }
   .footer-copyright { text-align:center; font-size:0.8rem; }
 </style>
+<?php $gaId = Config::get('GA_MEASUREMENT_ID', ''); ?>
+<?php if ($gaId !== ''): ?>
+<script async src="https://www.googletagmanager.com/gtag/js?id=<?= htmlspecialchars($gaId, ENT_QUOTES, 'UTF-8') ?>"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', '<?= htmlspecialchars($gaId, ENT_QUOTES, 'UTF-8') ?>');
+</script>
+<?php endif; ?>
 </head>
 <body>
 <header class="site-header">
