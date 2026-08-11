@@ -34,7 +34,7 @@ Layout::renderHeader(
     .splash-overlay { display:none; }
   }
 
-  .hero-text { align-self:start; }
+  .hero-text { align-self:center; }
   .hero-text h1 { font-size:clamp(1.7rem, 4.4vw, 2.3rem); line-height:1.5; margin:0 0 18px; letter-spacing:0.01em; }
   .hero-text h1 .hl { color:var(--brand-dark); }
   .hero-text p { font-size:1.02rem; color:var(--text-muted); line-height:1.9; max-width:480px; }
@@ -156,18 +156,31 @@ Layout::renderHeader(
   }
 
   .risk-band { background:var(--surface); border-radius:32px; padding:40px 32px; box-shadow:0 2px 16px rgba(61,58,53,0.05); }
-  .risk-list { display:grid; gap:10px; max-width:760px; margin:0 auto; }
-  .risk-row { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:16px; padding:14px 18px; border-radius:14px; background:var(--bg); }
-  .risk-row .level { display:inline-flex; align-items:center; justify-content:center; font-size:0.75rem; font-weight:bold; padding:4px 12px; border-radius:var(--radius-pill); white-space:nowrap; }
-  .risk-row .level.high { background:#f7d9d3; color:#a12a1f; }
-  .risk-row .level.medium { background:var(--card-peach); color:#a06322; }
-  .risk-row .level.low { background:var(--card-mint); color:var(--brand-dark); }
-  .risk-row .desc strong { display:block; font-size:0.96rem; margin-bottom:2px; }
-  .risk-row .desc span { color:var(--text-muted); font-size:0.85rem; }
-  .risk-row .action { color:var(--text-muted); font-size:0.82rem; text-align:right; white-space:nowrap; }
-  @media (max-width: 640px) {
-    .risk-row { grid-template-columns:1fr; text-align:left; gap:6px; }
-    .risk-row .action { text-align:left; }
+  .risk-groups { display:grid; grid-template-columns:repeat(3, 1fr); gap:18px; }
+  .risk-group { border-radius:24px; padding:22px 18px; }
+  .risk-group.level-high { background:#FBEAE6; }
+  .risk-group.level-medium { background:var(--card-peach); }
+  .risk-group.level-low { background:var(--card-mint); }
+  .risk-group-head { display:flex; align-items:center; gap:10px; }
+  .risk-group-level { display:inline-flex; align-items:center; justify-content:center; font-size:0.78rem; font-weight:bold; padding:4px 14px; border-radius:var(--radius-pill); background:rgba(255,255,255,0.7); white-space:nowrap; }
+  .risk-group.level-high .risk-group-level { color:#a12a1f; }
+  .risk-group.level-medium .risk-group-level { color:#a06322; }
+  .risk-group.level-low .risk-group-level { color:var(--brand-dark); }
+  .risk-group-action { font-size:0.8rem; font-weight:bold; }
+  .risk-group.level-high .risk-group-action { color:#a12a1f; }
+  .risk-group.level-medium .risk-group-action { color:#a06322; }
+  .risk-group.level-low .risk-group-action { color:var(--brand-dark); }
+  .risk-chips { display:flex; flex-direction:column; gap:8px; margin-top:14px; }
+  .risk-chip { display:flex; align-items:flex-start; gap:10px; background:rgba(255,255,255,0.6); border-radius:14px; padding:10px 12px; }
+  .risk-chip .chip-icon { width:30px; height:30px; border-radius:50%; background:#fff; display:flex; align-items:center; justify-content:center; flex-shrink:0; box-shadow:0 2px 8px rgba(61,58,53,0.08); }
+  .risk-chip .chip-icon svg { width:16px; height:16px; }
+  .risk-group.level-high .chip-icon svg { color:#a12a1f; }
+  .risk-group.level-medium .chip-icon svg { color:#a06322; }
+  .risk-group.level-low .chip-icon svg { color:var(--brand-dark); }
+  .risk-chip .chip-text strong { display:block; font-size:0.88rem; margin-bottom:2px; }
+  .risk-chip .chip-text span { color:var(--text-muted); font-size:0.76rem; line-height:1.55; }
+  @media (max-width: 860px) {
+    .risk-groups { grid-template-columns:1fr; }
   }
   .risk-note { color:var(--text-muted); font-size:0.85rem; margin-top:24px; text-align:center; line-height:1.8; }
 
@@ -375,41 +388,58 @@ Layout::renderHeader(
     <p>会話の中の特定のキーワードから、気になる兆候を自動で検知しています。リスクの高さに応じて対応を分けています。</p>
   </div>
   <div class="risk-band">
-    <div class="risk-list">
-      <div class="risk-row">
-        <span class="level high">高</span>
-        <span class="desc"><strong>振込・送金の要求</strong><span>「振込」「口座番号」「至急送金」などの表現</span></span>
-        <span class="action">記録+ご家族へ通知</span>
+    <div class="risk-groups">
+      <div class="risk-group level-high">
+        <div class="risk-group-head">
+          <span class="risk-group-level">高</span>
+        </div>
+        <p class="risk-group-action">記録+ご家族へ通知</p>
+        <div class="risk-chips">
+          <div class="risk-chip">
+            <span class="chip-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 7.5 12 12.5 15.5 7.5M12 12.5V17M9.3 14.3h5.4M9.3 16.3h5.4"/></svg></span>
+            <span class="chip-text"><strong>振込・送金の要求</strong><span>「振込」「口座番号」「至急送金」などの表現</span></span>
+          </div>
+          <div class="risk-chip">
+            <span class="chip-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2.5"/><circle cx="8.5" cy="12.3" r="2"/><path d="M13 11h5M13 14.2h3.5"/></svg></span>
+            <span class="chip-text"><strong>個人情報の聞き出し</strong><span>「暗証番号」「マイナンバー」「キャッシュカード」などの表現</span></span>
+          </div>
+          <div class="risk-chip">
+            <span class="chip-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13.5" r="8"/><path d="M12 9.5v4l3 2"/><path d="M9 3.5h6M19 5.5l1.5-1.5M5 5.5 3.5 4"/></svg></span>
+            <span class="chip-text"><strong>緊急性を煽る表現</strong><span>「今すぐ」「誰にも言わないで」などの判断を急がせる言い回し</span></span>
+          </div>
+          <div class="risk-chip">
+            <span class="chip-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12.5h4l2-6.5 4 13 2-9.5 2 5.5h3.5"/></svg></span>
+            <span class="chip-text"><strong>体調の急変・事故</strong><span>「倒れた」「息ができない」「転んだ」「火事」などの緊急性の高い訴え</span></span>
+          </div>
+        </div>
       </div>
-      <div class="risk-row">
-        <span class="level high">高</span>
-        <span class="desc"><strong>個人情報の聞き出し</strong><span>「暗証番号」「マイナンバー」「キャッシュカード」などの表現</span></span>
-        <span class="action">記録+ご家族へ通知</span>
+      <div class="risk-group level-medium">
+        <div class="risk-group-head">
+          <span class="risk-group-level">中</span>
+        </div>
+        <p class="risk-group-action">記録+ご家族へ通知</p>
+        <div class="risk-chips">
+          <div class="risk-chip">
+            <span class="chip-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.3"/><path d="M5.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><path d="M4.5 4.5l15 15"/></svg></span>
+            <span class="chip-text"><strong>相談を止めさせる誘導</strong><span>「家族には内緒」「一人で対応して」などの孤立化の兆候</span></span>
+          </div>
+          <div class="risk-chip">
+            <span class="chip-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 9.5l2 2M10 9.5l-2 2M14 9.5l2 2M16 9.5l-2 2"/><path d="M8.5 16c1-1 2.2-1.5 3.5-1.5s2.5.5 3.5 1.5"/></svg></span>
+            <span class="chip-text"><strong>体調不良・トラブルの訴え</strong><span>「しんどい」「めまい」「怖い人」など、様子を見るべき発言</span></span>
+          </div>
+        </div>
       </div>
-      <div class="risk-row">
-        <span class="level high">高</span>
-        <span class="desc"><strong>緊急性を煽る表現</strong><span>「今すぐ」「誰にも言わないで」などの判断を急がせる言い回し</span></span>
-        <span class="action">記録+ご家族へ通知</span>
-      </div>
-      <div class="risk-row">
-        <span class="level high">高</span>
-        <span class="desc"><strong>体調の急変・事故</strong><span>「倒れた」「息ができない」「転んだ」「火事」などの緊急性の高い訴え</span></span>
-        <span class="action">記録+ご家族へ通知</span>
-      </div>
-      <div class="risk-row">
-        <span class="level medium">中</span>
-        <span class="desc"><strong>相談を止めさせる誘導</strong><span>「家族には内緒」「一人で対応して」などの孤立化の兆候</span></span>
-        <span class="action">記録+ご家族へ通知</span>
-      </div>
-      <div class="risk-row">
-        <span class="level medium">中</span>
-        <span class="desc"><strong>体調不良・トラブルの訴え</strong><span>「しんどい」「めまい」「怖い人」など、様子を見るべき発言</span></span>
-        <span class="action">記録+ご家族へ通知</span>
-      </div>
-      <div class="risk-row">
-        <span class="level low">低</span>
-        <span class="desc"><strong>不審な人物の初出</strong><span>「知らない番号」「初めての人」など、まだ様子見でよい発言</span></span>
-        <span class="action">記録のみ</span>
+      <div class="risk-group level-low">
+        <div class="risk-group-head">
+          <span class="risk-group-level">低</span>
+        </div>
+        <p class="risk-group-action">記録のみ</p>
+        <div class="risk-chips">
+          <div class="risk-chip">
+            <span class="chip-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="8" r="3.3"/><path d="M4.5 19.5c0-3.2 2.6-5.3 5.7-5.3"/><circle cx="17.5" cy="15.5" r="4"/><path d="M16.3 14.3a1.4 1.4 0 1 1 2 1.3c-.6.4-.9.7-.9 1.4M17.4 18.3h.01"/></svg></span>
+            <span class="chip-text"><strong>不審な人物の初出</strong><span>「知らない番号」「初めての人」など、まだ様子見でよい発言</span></span>
+          </div>
+        </div>
       </div>
     </div>
     <p class="risk-note">

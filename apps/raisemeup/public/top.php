@@ -57,6 +57,30 @@ $orgBaseUrl = rtrim((string) Config::get('APP_BASE_URL', ''), '/');
     'url' => $orgBaseUrl . '/',
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?></script>
 <style>
+  .splash-overlay {
+    position:fixed; inset:0; z-index:1000;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:var(--bg); padding:20px; text-align:center; cursor:pointer;
+    opacity:1; transition:opacity 0.6s ease;
+  }
+  .splash-overlay.hide { opacity:0; pointer-events:none; }
+  .splash-overlay p { margin:0; display:flex; flex-direction:column; gap:12px; }
+  .lead-line { display:block; opacity:0; transform:translateY(16px); transition:opacity 0.8s ease, transform 0.8s ease; }
+  .lead-line.visible { opacity:1; transform:translateY(0); }
+  .lead-line-1 { font-size:clamp(1.9rem, 5.2vw, 2.6rem); font-weight:bold; color:var(--brand-dark); letter-spacing:0.02em; }
+  .lead-line-2 { font-size:clamp(1.9rem, 5.2vw, 2.6rem); font-weight:bold; color:var(--brand-dark); letter-spacing:0.02em; transition:opacity 1.1s ease, transform 1.1s ease; }
+  .splash-mark-wrap { position:relative; width:4.6rem; height:4.6rem; margin:0 auto 22px; }
+  .splash-glow {
+    position:absolute; z-index:0; top:50%; left:50%; width:220px; height:220px;
+    transform:translate(-50%, -50%);
+    background:radial-gradient(circle, rgba(75,139,90,0.35) 0%, rgba(75,139,90,0.16) 40%, rgba(75,139,90,0) 62%);
+    pointer-events:none; animation:glow-heartbeat 2.6s ease-in-out infinite;
+  }
+  .splash-mark { position:relative; z-index:1; width:100%; height:100%; display:block; }
+  @media (prefers-reduced-motion: reduce) {
+    .splash-overlay { display:none; }
+  }
+
   .hero-wrap {
     display:grid; grid-template-columns:minmax(280px, 420px) 1fr; gap:32px; align-items:center;
     width:100vw; margin-left:calc(50% - 50vw); margin-right:calc(50% - 50vw);
@@ -347,6 +371,56 @@ $orgBaseUrl = rtrim((string) Config::get('APP_BASE_URL', ''), '/');
   // JS有効時のみシミュレーション(.sim-phone)のバブルを最初は隠す(CSS側の.jsスコープと対応)。
   // ページ冒頭で同期実行することで、表示→非表示のチラつき(FOUC)を防ぐ
   document.documentElement.classList.add('js');
+</script>
+
+<div class="splash-overlay" id="splashOverlay">
+  <div class="splash-mark-wrap lead-line">
+    <span class="splash-glow" aria-hidden="true"></span>
+    <svg class="splash-mark" viewBox="0 0 128 128" aria-hidden="true">
+      <path fill="#4B8B5A" d="M87.2,11.9 A57,57 0 0,1 64,121 L64,99 A35,35 0 0,0 71.9,29.9 L87.2,11.9 Z"/>
+      <path fill="#1E4729" d="M40.8,11.9 A57,57 0 0,0 64,121 L64,99 A35,35 0 0,1 56.1,29.9 L40.8,11.9 Z"/>
+    </svg>
+  </div>
+  <p>
+    <span class="lead-line lead-line-1">ずっと、話そう…</span>
+    <span class="lead-line lead-line-2">ずっと、聞いてるよ。</span>
+  </p>
+</div>
+<noscript><style>.splash-overlay { display:none !important; }</style></noscript>
+<script>
+(function () {
+  var overlay = document.getElementById('splashOverlay');
+  if (!overlay) {
+    return;
+  }
+  var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduceMotion) {
+    overlay.style.display = 'none';
+    return;
+  }
+
+  var lines = overlay.querySelectorAll('.lead-line');
+  var dismissed = false;
+  document.body.style.overflow = 'hidden';
+
+  function dismiss() {
+    if (dismissed) {
+      return;
+    }
+    dismissed = true;
+    overlay.classList.add('hide');
+    document.body.style.overflow = '';
+    setTimeout(function () { overlay.style.display = 'none'; }, 600);
+  }
+
+  var lineDelays = [100, 550, 1950];
+  lines.forEach(function (el, i) {
+    setTimeout(function () { el.classList.add('visible'); }, lineDelays[i] || 150);
+  });
+
+  overlay.addEventListener('click', dismiss);
+  setTimeout(dismiss, 4400);
+})();
 </script>
 
 <div class="hero-wrap">
