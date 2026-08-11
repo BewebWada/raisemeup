@@ -18,6 +18,22 @@ Layout::renderHeader(
     width:100vw; margin-left:calc(50% - 50vw); margin-right:calc(50% - 50vw);
     padding:0 0 24px calc(50vw - 50%);
   }
+  .splash-overlay {
+    position:fixed; inset:0; z-index:1000;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--bg); padding:20px; text-align:center; cursor:pointer;
+    opacity:1; transition:opacity 0.6s ease;
+  }
+  .splash-overlay.hide { opacity:0; pointer-events:none; }
+  .splash-overlay p { margin:0; display:flex; flex-direction:column; gap:12px; }
+  .lead-line { display:block; opacity:0; transform:translateY(16px); transition:opacity 0.8s ease, transform 0.8s ease; }
+  .lead-line.visible { opacity:1; transform:translateY(0); }
+  .lead-line-1 { font-size:clamp(1.6rem, 4.4vw, 2.2rem); font-weight:600; color:var(--text); letter-spacing:0.04em; }
+  .lead-line-2 { font-size:clamp(1.9rem, 5.2vw, 2.6rem); font-weight:bold; color:var(--brand-dark); letter-spacing:0.02em; transition:opacity 1.1s ease, transform 1.1s ease; }
+  @media (prefers-reduced-motion: reduce) {
+    .splash-overlay { display:none; }
+  }
+
   .hero-text { align-self:start; }
   .hero-text h1 { font-size:clamp(1.7rem, 4.4vw, 2.3rem); line-height:1.5; margin:0 0 18px; letter-spacing:0.01em; }
   .hero-text h1 .hl { color:var(--brand-dark); }
@@ -181,6 +197,49 @@ Layout::renderHeader(
   .closing-band h2 { font-size:clamp(1.4rem, 3vw, 1.9rem); margin:0 0 14px; }
   .closing-band p { color:#dfe6da; max-width:480px; margin:0 auto 28px; line-height:1.8; }
 </style>
+
+<div class="splash-overlay" id="splashOverlay">
+  <p>
+    <span class="lead-line lead-line-1">ただ、話しかける</span>
+    <span class="lead-line lead-line-2">それだけ</span>
+  </p>
+</div>
+<noscript><style>.splash-overlay { display:none !important; }</style></noscript>
+<script>
+(function () {
+  var overlay = document.getElementById('splashOverlay');
+  if (!overlay) {
+    return;
+  }
+  var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduceMotion) {
+    overlay.style.display = 'none';
+    return;
+  }
+
+  var lines = overlay.querySelectorAll('.lead-line');
+  var dismissed = false;
+  document.body.style.overflow = 'hidden';
+
+  function dismiss() {
+    if (dismissed) {
+      return;
+    }
+    dismissed = true;
+    overlay.classList.add('hide');
+    document.body.style.overflow = '';
+    setTimeout(function () { overlay.style.display = 'none'; }, 600);
+  }
+
+  var lineDelays = [150, 1500];
+  lines.forEach(function (el, i) {
+    setTimeout(function () { el.classList.add('visible'); }, lineDelays[i] || 150);
+  });
+
+  overlay.addEventListener('click', dismiss);
+  setTimeout(dismiss, 4000);
+})();
+</script>
 
 <div class="hero-wrap">
   <div class="hero-text">

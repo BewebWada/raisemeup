@@ -117,7 +117,8 @@ class Layout
   html { overflow-x:hidden; }
   body { font-family: -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif; background:var(--bg); color:var(--text); margin:0; overflow-x:hidden; }
   a { color:var(--brand); }
-  .site-header { position:sticky; top:0; z-index:100; background:transparent; padding:16px 20px; }
+  .site-header { position:fixed; top:0; left:0; right:0; z-index:1100; background:transparent; padding:16px 20px; }
+  #site-header-spacer { height:104px; }
   .site-header nav { max-width:1120px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; }
   .site-header .logo { display:flex; align-items:center; text-decoration:none; margin-top:-22px; border-radius:0 0 14px 14px; overflow:hidden; box-shadow:0 2px 12px rgba(61,58,53,0.08); margin-right:auto; }
   .site-header .logo img { display:block; }
@@ -228,6 +229,21 @@ class Layout
     <a class="cta-btn" href="<?= htmlspecialchars(self::CTA[0], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars(self::CTA[1], ENT_QUOTES, 'UTF-8') ?><?= self::icon('play') ?></a>
   </nav>
 </header>
+<div id="site-header-spacer" aria-hidden="true"></div>
+<script>
+(function () {
+  var header = document.querySelector('.site-header');
+  var spacer = document.getElementById('site-header-spacer');
+  if (!header || !spacer) {
+    return;
+  }
+  function syncSpacerHeight() {
+    spacer.style.height = header.offsetHeight + 'px';
+  }
+  syncSpacerHeight();
+  window.addEventListener('resize', syncSpacerHeight);
+})();
+</script>
 <div class="menu-backdrop" id="menuBackdrop"></div>
 <script>
 (function () {

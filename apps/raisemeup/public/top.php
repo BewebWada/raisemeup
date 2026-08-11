@@ -127,8 +127,12 @@ $orgBaseUrl = rtrim((string) Config::get('APP_BASE_URL', ''), '/');
   .about-art { display:flex; justify-content:flex-start; }
   .about-art .frame { width:100%; aspect-ratio:3/2; border-radius:0 var(--radius-lg) var(--radius-lg) 0; overflow:hidden; }
   .about-art img { width:100%; height:100%; object-fit:cover; object-position:60% 40%; display:block; }
+  .about-wrap-reverse { grid-template-columns:minmax(280px, 420px) 1fr; padding:0 0 0 calc(50vw - 50%); }
+  .about-wrap-reverse .about-art { justify-content:flex-end; }
+  .about-wrap-reverse .about-art .frame { border-radius:var(--radius-lg) 0 0 var(--radius-lg); }
   @media (max-width: 720px) {
     .about-wrap { grid-template-columns:1fr; text-align:center; width:auto; margin-left:0; margin-right:0; padding:0 20px; }
+    .about-wrap-reverse { padding:0 20px; }
     .about-art { max-width:100%; justify-content:center; }
     .about-art .frame { border-radius:var(--radius-lg); }
   }
@@ -376,18 +380,18 @@ $orgBaseUrl = rtrim((string) Config::get('APP_BASE_URL', ''), '/');
 </section>
 
 <section>
-  <div class="about-wrap">
-    <div class="about-art">
-      <div class="frame">
-        <img src="/assets/about-photo-03.jpg" alt="TAYORIサポートからの安否確認の連絡にほっとするご家族の写真" width="1536" height="1024">
-      </div>
-    </div>
+  <div class="about-wrap about-wrap-reverse">
     <div class="about-text">
       <h2>ご家族にも、そっと安心を。</h2>
       <p>
         週に一度、「今週の様子」をダイジェストでお届けします。しばらく会話が確認できない時はご連絡し、
         その後連絡が取れたこともきちんとお伝えします。日々の会話をのぞくことはなく、必要な時だけそっと届きます。
       </p>
+    </div>
+    <div class="about-art">
+      <div class="frame">
+        <img src="/assets/about-photo-03.jpg" alt="TAYORIサポートからの安否確認の連絡にほっとするご家族の写真" width="1536" height="1024">
+      </div>
     </div>
   </div>
 </section>
