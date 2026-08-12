@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../src/Layout.php';
+require_once __DIR__ . '/../src/PolicyVersions.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
 
 // APP_BASE_URLをEnvから読み込む(未ロードだとLayoutのcanonical/OGP用URLが相対パスになってしまうため)
@@ -98,7 +99,7 @@ Layout::renderHeader(
     変更後の内容は、本ページに掲載した時点から効力を生じるものとします。
   </p>
 
-  <p class="updated">制定日:2026年7月11日</p>
+  <p class="updated">制定日:<?= htmlspecialchars(PolicyVersions::formatDate(PolicyVersions::PRIVACY_VERSION), ENT_QUOTES, 'UTF-8') ?></p>
 </div>
 
 <?php Layout::renderFooter(); ?>

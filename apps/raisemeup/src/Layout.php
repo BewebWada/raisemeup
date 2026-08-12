@@ -24,6 +24,7 @@ class Layout
 
     // フッターの「サイトマップ」に、NAV・CTAに続けて並べる法定表記等のリンク
     private const FOOTER_LEGAL_LINKS = [
+        ['/terms/', '利用規約'],
         ['/privacy/', 'プライバシーポリシー'],
         ['/tokushoho/', '特定商取引法に基づく表記'],
     ];

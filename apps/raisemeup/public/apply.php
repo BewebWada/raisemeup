@@ -8,6 +8,8 @@ require_once __DIR__ . '/../src/SubscriptionRepository.php';
 require_once __DIR__ . '/../src/StripeClient.php';
 require_once __DIR__ . '/../src/Layout.php';
 require_once __DIR__ . '/../src/ApplyDoneView.php';
+require_once __DIR__ . '/../src/ApplyConfirmView.php';
+require_once __DIR__ . '/../src/ConsentLogRepository.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Database.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
 
@@ -38,6 +40,9 @@ if (isset($_GET['cancelled']) && !empty($_SESSION['apply_result'])) {
 }
 
 $errors = [];
+$duplicateFamily = null;
+$duplicateCanLogin = false;
+$selectedPlan = null;
 $formValues = [
     'family_last_name' => '', 'family_first_name' => '', 'family_email' => '', 'family_phone' => '',
     'user_last_name' => '', 'user_first_name' => '', 'user_phone' => '', 'user_zip' => '', 'user_address' => '',
@@ -79,6 +84,152 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $formValues['user_birthdate'] = '';
     }
 
+    // apply_stage: review(Step1送信→確認画面へ) / edit(Step2「修正する」→Step1へ戻る) / confirm(Step2「同意して申し込む」→DB確定)
+    $stage = (string) ($_POST['apply_stage'] ?? 'review');
+
+    if ($stage !== 'edit') {
+        $validation = validateApplyInput($formValues, $planRepo, $pdo);
+        $errors = array_merge($errors, $validation['errors']);
+        $duplicateFamily = $validation['duplicateFamily'];
+        $duplicateCanLogin = $validation['duplicateCanLogin'];
+        $selectedPlan = $validation['selectedPlan'];
+
+        if ($stage === 'review' && empty($errors) && $duplicateFamily === null) {
+            renderConfirm($formValues, $selectedPlan, $_SESSION['apply_csrf_token']);
+            exit;
+        }
+
+        if ($stage === 'confirm' && empty($errors) && $duplicateFamily === null) {
+            $agreeTerms = !empty($_POST['agree_terms']);
+            $agreePrivacy = !empty($_POST['agree_privacy']);
+
+            if (!$agreeTerms || !$agreePrivacy) {
+                renderConfirm(
+                    $formValues,
+                    $selectedPlan,
+                    $_SESSION['apply_csrf_token'],
+                    ['利用規約とプライバシーポリシーの両方にご同意ください。'],
+                    $agreeTerms,
+                    $agreePrivacy
+                );
+                exit;
+            }
+
+            try {
+                $pdo->beginTransaction();
+
+                $familyRepo = new FamilyAccountRepository($pdo);
+                $userRepo = new UserRepository($pdo);
+                $subscriptionRepo = new SubscriptionRepository($pdo);
+                $consentRepo = new ConsentLogRepository($pdo);
+
+                $familyFullName = trim($formValues['family_last_name'] . ' ' . $formValues['family_first_name']);
+                $userFullName = trim($formValues['user_last_name'] . ' ' . $formValues['user_first_name']);
+
+                $family = $familyRepo->create([
+                    'name' => $familyFullName,
+                    'email' => $formValues['family_email'],
+                    'phone' => $formValues['family_phone'],
+                ]);
+
+                // 呼び名は申込み時には聞かず、TAYORIとの会話の中で自然に確認して
+                // ConversationHandlerが後から設定する(companion_nameと同じ方針)。
+                // 氏名(full_name)はご家族が代理入力する管理用の名前で、呼び名とは別物
+                $user = $userRepo->createPending([
+                    'full_name' => $userFullName,
+                    'display_name' => null,
+                    'phone' => $formValues['user_phone'],
+                    'postal_code' => $formValues['user_zip'],
+                    'address' => $formValues['user_address'],
+                    'birthdate' => $formValues['user_birthdate'],
+                    'gender' => $formValues['user_gender'],
+                    'companion_gender' => $formValues['companion_gender'],
+                ]);
+
+                $pdo->prepare(
+                    "INSERT INTO user_family_links (user_id, family_account_id, relation, role, notify_priority, is_active)
+                     VALUES (?, ?, ?, 'payer', 1, 1)"
+                )->execute([$user['id'], $family['id'], $formValues['relation'] ?: null]);
+
+                $subscriptionId = $subscriptionRepo->createTrial($user['id'], $family['id'], (int) $selectedPlan['id'], TRIAL_DAYS);
+
+                // 特商法12条の6の確認画面で取得した同意を、契約記録として同一トランザクションで確定させる
+                $consentRepo->recordBoth(
+                    (int) $family['id'],
+                    (string) ($_SERVER['REMOTE_ADDR'] ?? ''),
+                    isset($_SERVER['HTTP_USER_AGENT']) ? (string) $_SERVER['HTTP_USER_AGENT'] : null
+                );
+
+                $pdo->commit();
+
+                // 呼び名は自動生成しない。デフォルトは「たより」のままにしておき、会話の中で本人から
+                // 「〇〇って呼びたい」等の希望があった場合だけConversationHandlerがcompanion_nameを更新する
+
+                // 表示に必要な情報(プラン名・トライアル終了日等)はrenderDone側で毎回DBから取得するので、
+                // ここでは「このブラウザがどの申込みを行ったか」を示すIDだけを持たせる
+                $_SESSION['apply_result'] = [
+                    'user_id' => (int) $user['id'],
+                    'family_id' => (int) $family['id'],
+                ];
+                unset($_SESSION['apply_csrf_token']);
+
+                // トライアル本体はDBに確定済みなので、ここから先(Stripe連携)が失敗してもロールバックはしない。
+                // カード登録なしのトライアルとしてそのままサービスを継続させる(方針はcheck_subscriptions.phpと同じ)。
+                $baseUrl = rtrim(Config::get('APP_BASE_URL', ''), '/');
+                if ($baseUrl !== '' && !empty($selectedPlan['stripe_price_id'])) {
+                    try {
+                        $stripe = new StripeClient(Config::get('STRIPE_SECRET_KEY', ''));
+                        $customer = $stripe->createCustomer(
+                            $formValues['family_email'],
+                            $familyFullName,
+                            ['family_account_id' => (string) $family['id']]
+                        );
+                        $familyRepo->setStripeCustomerId((int) $family['id'], $customer['id']);
+
+                        $session = $stripe->createCheckoutSession([
+                            'customer' => $customer['id'],
+                            'line_items' => [['price' => $selectedPlan['stripe_price_id'], 'quantity' => 1]],
+                            'subscription_data' => ['trial_period_days' => TRIAL_DAYS],
+                            'client_reference_id' => (string) $subscriptionId,
+                            'success_url' => $baseUrl . '/apply/?done=1',
+                            'cancel_url' => $baseUrl . '/apply/?cancelled=1',
+                        ]);
+
+                        header('Location: ' . $session['url']);
+                        exit;
+                    } catch (Throwable $e) {
+                        error_log('Stripe checkout session creation failed: ' . $e->getMessage());
+                    }
+                }
+
+                header('Location: /apply/?done=1');
+                exit;
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                error_log('apply.php submission failed: ' . $e->getMessage());
+                $errors[] = '申込処理中にエラーが発生しました。お手数ですが時間をおいて再度お試しください。';
+            }
+        }
+        // ここに到達するのは: review/confirmの通常バリデーションエラー、重複メール検知、
+        // またはconfirm時のDB確定失敗の場合。hidden fieldの改ざんやStep1〜Step2間のレースコンディションを
+        // 含め、いずれもStep1(renderForm)にエラー付きで差し戻すのが適切
+    }
+    // stage === 'edit' の場合はバリデーションを行わず、そのままStep1を再表示する(下記renderForm)
+}
+
+renderForm($planRepo->getActivePlans(), $errors, $formValues, $_SESSION['apply_csrf_token'], $duplicateFamily, $duplicateCanLogin);
+
+// 入力チェック・重複申込み検知をまとめた関数。review(Step1送信)・confirm(Step2最終送信)の両方から呼ぶ。
+// confirm時の再検証は、確認画面のhidden fieldが改ざんされていた場合(特にplan_id改ざんによる価格詐取)や、
+// Step1〜Step2間に他タブ等から同一メールで申込みが完了するレースコンディションを防ぐために必須
+function validateApplyInput(array &$formValues, PlanRepository $planRepo, PDO $pdo): array
+{
+    $errors = [];
+    $duplicateFamily = null;
+    $duplicateCanLogin = false;
+
     $activePlans = $planRepo->getActivePlans();
     // coming_soonなプランは表示はするが、申込みでは選択できないようにする(サービス開始前のため)
     $selectablePlans = array_filter($activePlans, fn($p) => !$p['coming_soon']);
@@ -92,8 +243,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (($formValues['user_last_name'] !== '') !== ($formValues['user_first_name'] !== '')) {
         $errors[] = 'ご利用者様のお名前は姓・名の両方を入力してください。';
     }
-    $duplicateFamily = null;
-    $duplicateCanLogin = false;
     if ($formValues['family_email'] !== '' && !filter_var($formValues['family_email'], FILTER_VALIDATE_EMAIL)) {
         $errors[] = 'メールアドレスの形式が正しくありません。';
     } elseif ($formValues['family_email'] !== '') {
@@ -174,101 +323,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = 'ご利用者様の性別の指定が正しくありません。';
     }
 
+    $selectedPlan = null;
     if (empty($errors) && $duplicateFamily === null) {
         $selectedPlan = $planRepo->find((int) $formValues['plan_id']);
-
-        try {
-            $pdo->beginTransaction();
-
-            $familyRepo = new FamilyAccountRepository($pdo);
-            $userRepo = new UserRepository($pdo);
-            $subscriptionRepo = new SubscriptionRepository($pdo);
-
-            $familyFullName = trim($formValues['family_last_name'] . ' ' . $formValues['family_first_name']);
-            $userFullName = trim($formValues['user_last_name'] . ' ' . $formValues['user_first_name']);
-
-            $family = $familyRepo->create([
-                'name' => $familyFullName,
-                'email' => $formValues['family_email'],
-                'phone' => $formValues['family_phone'],
-            ]);
-
-            // 呼び名は申込み時には聞かず、TAYORIとの会話の中で自然に確認して
-            // ConversationHandlerが後から設定する(companion_nameと同じ方針)。
-            // 氏名(full_name)はご家族が代理入力する管理用の名前で、呼び名とは別物
-            $user = $userRepo->createPending([
-                'full_name' => $userFullName,
-                'display_name' => null,
-                'phone' => $formValues['user_phone'],
-                'postal_code' => $formValues['user_zip'],
-                'address' => $formValues['user_address'],
-                'birthdate' => $formValues['user_birthdate'],
-                'gender' => $formValues['user_gender'],
-                'companion_gender' => $formValues['companion_gender'],
-            ]);
-
-            $pdo->prepare(
-                "INSERT INTO user_family_links (user_id, family_account_id, relation, role, notify_priority, is_active)
-                 VALUES (?, ?, ?, 'payer', 1, 1)"
-            )->execute([$user['id'], $family['id'], $formValues['relation'] ?: null]);
-
-            $subscriptionId = $subscriptionRepo->createTrial($user['id'], $family['id'], (int) $selectedPlan['id'], TRIAL_DAYS);
-
-            $pdo->commit();
-
-            // 呼び名は自動生成しない。デフォルトは「たより」のままにしておき、会話の中で本人から
-            // 「〇〇って呼びたい」等の希望があった場合だけConversationHandlerがcompanion_nameを更新する
-
-            // 表示に必要な情報(プラン名・トライアル終了日等)はrenderDone側で毎回DBから取得するので、
-            // ここでは「このブラウザがどの申込みを行ったか」を示すIDだけを持たせる
-            $_SESSION['apply_result'] = [
-                'user_id' => (int) $user['id'],
-                'family_id' => (int) $family['id'],
-            ];
-            unset($_SESSION['apply_csrf_token']);
-
-            // トライアル本体はDBに確定済みなので、ここから先(Stripe連携)が失敗してもロールバックはしない。
-            // カード登録なしのトライアルとしてそのままサービスを継続させる(方針はcheck_subscriptions.phpと同じ)。
-            $baseUrl = rtrim(Config::get('APP_BASE_URL', ''), '/');
-            if ($baseUrl !== '' && !empty($selectedPlan['stripe_price_id'])) {
-                try {
-                    $stripe = new StripeClient(Config::get('STRIPE_SECRET_KEY', ''));
-                    $customer = $stripe->createCustomer(
-                        $formValues['family_email'],
-                        $familyFullName,
-                        ['family_account_id' => (string) $family['id']]
-                    );
-                    $familyRepo->setStripeCustomerId((int) $family['id'], $customer['id']);
-
-                    $session = $stripe->createCheckoutSession([
-                        'customer' => $customer['id'],
-                        'line_items' => [['price' => $selectedPlan['stripe_price_id'], 'quantity' => 1]],
-                        'subscription_data' => ['trial_period_days' => TRIAL_DAYS],
-                        'client_reference_id' => (string) $subscriptionId,
-                        'success_url' => $baseUrl . '/apply/?done=1',
-                        'cancel_url' => $baseUrl . '/apply/?cancelled=1',
-                    ]);
-
-                    header('Location: ' . $session['url']);
-                    exit;
-                } catch (Throwable $e) {
-                    error_log('Stripe checkout session creation failed: ' . $e->getMessage());
-                }
-            }
-
-            header('Location: /apply/?done=1');
-            exit;
-        } catch (Throwable $e) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-            error_log('apply.php submission failed: ' . $e->getMessage());
-            $errors[] = '申込処理中にエラーが発生しました。お手数ですが時間をおいて再度お試しください。';
-        }
     }
-}
 
-renderForm($planRepo->getActivePlans(), $errors, $formValues, $_SESSION['apply_csrf_token'], $duplicateFamily ?? null, $duplicateCanLogin ?? false);
+    return [
+        'errors' => $errors,
+        'duplicateFamily' => $duplicateFamily,
+        'duplicateCanLogin' => $duplicateCanLogin,
+        'selectedPlan' => $selectedPlan,
+    ];
+}
 
 function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?array $duplicateFamily = null, bool $duplicateCanLogin = false): void
 {
@@ -359,6 +425,7 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
   <?php endif; ?>
 
   <form method="post" action="/apply/">
+    <input type="hidden" name="apply_stage" value="review">
     <input type="text" name="website" class="honeypot" tabindex="-1" autocomplete="off" value="">
     <input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>">
 
@@ -459,7 +526,7 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
       <?php endif; ?>
     <?php endforeach; ?>
 
-    <button type="submit">この内容で申し込む<?= Layout::icon('play') ?></button>
+    <button type="submit">確認画面へ進む<?= Layout::icon('play') ?></button>
   </form>
 </div>
 <script>
