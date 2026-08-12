@@ -363,4 +363,19 @@ return [
         INDEX idx_status_send_after (status, send_after),
         INDEX idx_user_status (user_id, status)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='緊急性の低い普通の雑談を、即レスの機械的な印象を避けるため数分置いてpush APIで送るための遅延キュー(ConversationHandler::flushPendingReplies/send_pending_replies.phpが処理)';",
+
+    // 特定商取引法12条の6の最終確認画面での同意取得証跡。契約記録として本体アカウントとは
+    // ライフサイクルを分離するため、family_accountsへのFOREIGN KEYはあえて付けない
+    'consent_logs' => "CREATE TABLE IF NOT EXISTS consent_logs (
+        id                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        family_account_id   BIGINT UNSIGNED NOT NULL COMMENT '同意した申込者(ご家族=ペイヤー)。FK制約は意図的に付けない(将来のアカウント削除でCASCADE消失させないため)',
+        consent_type        ENUM('terms', 'privacy') NOT NULL,
+        policy_version      VARCHAR(20) NOT NULL COMMENT 'PolicyVersions::TERMS_VERSION / PRIVACY_VERSION',
+        agreed_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        ip_address          VARCHAR(45) DEFAULT NULL,
+        user_agent          VARCHAR(500) DEFAULT NULL,
+        created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_family_account (family_account_id),
+        INDEX idx_type_version (consent_type, policy_version)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='申込み時の利用規約・プライバシーポリシー同意ログ(特定商取引法・個人情報保護法対応の証跡)';",
 ];
