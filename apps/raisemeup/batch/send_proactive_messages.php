@@ -15,6 +15,10 @@
 //   (4)の文面は、無応答期間に重なる予定・直近の会話内容・気になる会話の記録の有無を踏まえて組み立てる
 // - (5)服薬リマインド: schedules.is_medication=trueの日次/週次予定について、その時刻が来たら
 //   「お薬の時間だよ」と声をかける。健康に関わるため、深夜早朝の声かけガード(1・2)の対象外にしている
+//   (予定リマインド(1)は二重送信を避けるためis_medication=trueの予定を対象外にしている)。
+//   このリマインドはconversations.is_notification=1で記録し、返信を前提としない事務的な通知として
+//   気まぐれな声かけ(2)の間隔判定・CHECKIN_WINDOWSの「会話成立」判定からは除外する
+//   (服薬の声かけだけがずっと続くと、雑談や安否確認チェックインの機会そのものが失われてしまうため)
 require_once __DIR__ . '/../src/Config.php';
 require_once __DIR__ . '/../src/LineClient.php';
 require_once __DIR__ . '/../src/ClaudeClient.php';
@@ -96,11 +100,13 @@ $now = new DateTime('now', new DateTimeZone('Asia/Tokyo'));
 // 判定がscheduled_atを見ているため、リマインド処理より前に必ず実行する
 (new ScheduleRepository($pdo))->advanceRecurringSchedules();
 
-function logOutbound(PDO $pdo, int $userId, string $text): void
+// $isNotification: 服薬リマインドのような、返信を前提としない事務的な一方通知の場合はtrue。
+// 気まぐれ雑談・CHECKIN_WINDOWSの「会話成立」判定(下記candidatesクエリ)からは除外される
+function logOutbound(PDO $pdo, int $userId, string $text, bool $isNotification = false): void
 {
     $pdo->prepare(
-        'INSERT INTO conversations (user_id, direction, message_type, content) VALUES (?, "outbound", "text", ?)'
-    )->execute([$userId, $text]);
+        'INSERT INTO conversations (user_id, direction, message_type, is_notification, content) VALUES (?, "outbound", "text", ?, ?)'
+    )->execute([$userId, $isNotification ? 1 : 0, $text]);
 }
 
 // $start/$end は "HH:MM:SS"(DBのTIME型)または null。$startのみ/$endのみの片方だけの申告はしない前提だが、
@@ -513,7 +519,7 @@ function sendMedicationReminders(PDO $pdo, LineClient $lineClient, MedicationLog
             : '「' . implode('』『', $titles) . '』のお薬の時間だよ。飲んだら教えてね。';
 
         if ($lineClient->push($data['line_user_id'], $text)) {
-            logOutbound($pdo, $userId, $text);
+            logOutbound($pdo, $userId, $text, true);
             $insertStmt = $pdo->prepare(
                 'INSERT INTO medication_logs (schedule_id, user_id, log_date, reminder_sent_at, status)
                  VALUES (?, ?, CURDATE(), NOW(), "pending")'
@@ -541,7 +547,7 @@ if ($isQuietHoursNow) {
                 u.display_name, u.companion_name, u.quiet_hours_start, u.quiet_hours_end
          FROM schedules s
          JOIN users u ON u.id = s.user_id
-         WHERE s.status = 'upcoming' AND s.reminder_sent = 0 AND u.line_user_id IS NOT NULL
+         WHERE s.status = 'upcoming' AND s.reminder_sent = 0 AND s.is_medication = 0 AND u.line_user_id IS NOT NULL
            AND DATE(s.scheduled_at) = DATE_ADD(CURDATE(), INTERVAL 1 DAY)"
     );
     $reminderCount = 0;
@@ -586,7 +592,7 @@ if ($isQuietHoursNow) {
                 u.display_name, u.companion_name, u.quiet_hours_start, u.quiet_hours_end
          FROM schedules s
          JOIN users u ON u.id = s.user_id
-         WHERE s.status = 'upcoming' AND s.same_day_reminder_sent = 0 AND u.line_user_id IS NOT NULL
+         WHERE s.status = 'upcoming' AND s.same_day_reminder_sent = 0 AND s.is_medication = 0 AND u.line_user_id IS NOT NULL
            AND DATE(s.scheduled_at) = CURDATE()"
     );
     $sameDayReminderCount = 0;
@@ -625,13 +631,16 @@ if ($isQuietHoursNow) {
     echo "[OK] same-day schedule reminders sent: {$sameDayReminderCount}\n";
 
     // --- 2. 気まぐれな声かけ(直近の会話有無によらず、友達付き合いのように一定確率で) ---
-    // last_contact_at: この利用者との最新の会話時刻(inbound/outbound問わず)。一度も会話が無ければNULL
+    // last_contact_at: この利用者との最新の「会話」時刻(inbound/outbound問わず)。一度も会話が無ければNULL。
+    // 服薬リマインド等の事務的な一方通知(is_notification=1)は、返信を前提とせず送りっぱなしのものなので
+    // ここには含めない(含めてしまうと、雑談の間隔判定・CHECKIN_WINDOWSの「会話成立」判定の両方が
+    // 通知の頻度でずっと埋まってしまい、気まぐれ雑談も安否確認チェックインも発火しなくなるため)
     $stmt = $pdo->prepare(
         "SELECT u.id, u.line_user_id, u.display_name, u.companion_name, u.companion_gender, u.companion_persona,
                 u.gender, u.quiet_hours_start, u.quiet_hours_end,
                 MAX(c.created_at) AS last_contact_at
          FROM users u
-         LEFT JOIN conversations c ON c.user_id = u.id
+         LEFT JOIN conversations c ON c.user_id = u.id AND c.is_notification = 0
          WHERE u.status = 'active' AND u.line_user_id IS NOT NULL
          GROUP BY u.id
          HAVING last_contact_at IS NULL OR last_contact_at <= DATE_SUB(NOW(), INTERVAL ? HOUR)"

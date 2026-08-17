@@ -163,4 +163,12 @@ return [
     'schedules.document_text_id' => "ALTER TABLE schedules
         ADD COLUMN IF NOT EXISTS document_text_id BIGINT UNSIGNED DEFAULT NULL
         COMMENT '原稿対応モードでこの予定の元になった書類(document_texts)。書類由来でない予定はNULL' AFTER source_conversation_id;",
+
+    // 服薬リマインドのような「事務的な通知」を、気まぐれな雑談・安否確認チェックインの
+    // 「会話が成立した」判定材料から除外するためのフラグ。返信の有無に関わらず送信するだけの
+    // 一方的な通知がlast_contact_atを更新し続けると、雑談枠が事実上ずっと埋まってしまうため
+    // (send_proactive_messages.phpのsendMedicationReminders参照)
+    'conversations.is_notification' => "ALTER TABLE conversations
+        ADD COLUMN IF NOT EXISTS is_notification BOOLEAN NOT NULL DEFAULT FALSE
+        COMMENT '服薬リマインド等、事務的な一方通知かどうか。気まぐれ雑談・安否確認チェックインの会話成立判定からは除外する' AFTER message_type;",
 ];
