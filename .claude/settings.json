@@ -19,6 +19,17 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /var/www/raisemeup.jp/public_html/.claude/hooks/fix-env-ownership.sh"
+          }
+        ]
+      }
     ]
   }
 }
