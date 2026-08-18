@@ -421,9 +421,10 @@ function renderUserHandoffStep(
         <li><span class="guide-icon"><?= Layout::icon('copy') ?></span><span>上のボタンでURLをコピーする</span></li>
         <li><span class="guide-icon"><?= Layout::icon('chat') ?></span><span>LINEやSMSで、ご本人のスマートフォンに送る</span></li>
         <li><span class="guide-icon"><?= Layout::icon('login') ?></span><span>ご本人がそのURLを開き、LINEでログインする</span></li>
-        <li><span class="guide-icon"><?= Layout::icon('check') ?></span><span>友だち追加まで自動で確認されます</span></li>
+        <li><span class="guide-icon"><?= Layout::icon('check') ?></span><span>ご本人が完了したら、下のボタンで確認する</span></li>
       </ol>
-      <p class="hint" style="margin-top:12px;">現在、ご本人にLINE連携をお願いしている状態です。連携が完了次第、ご家族様のLINEにお知らせしますので、この画面を閉じてお待ちいただいて構いません。</p>
+      <button type="button" class="button secondary" onclick="location.reload()">ご本人の連携が完了したか確認する</button>
+      <p class="hint" style="margin-top:12px;">現在、ご本人にLINE連携をお願いしている状態です。連携が完了次第、ご家族様のLINEにもお知らせが届きます。この画面を閉じてお待ちいただいても構いません。</p>
       <?php if ($fallbackAddFriendUrl !== '' && $inviteCode !== null): ?>
         <details class="fallback">
           <summary>URLが開けない場合はこちら</summary>
