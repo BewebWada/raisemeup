@@ -463,7 +463,14 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
 <?php endif; ?>
 
 <?php if ($familyCardMissing): ?>
-  <div class="card"><div class="errors">まだお支払い方法(クレジットカード)が登録されていません。無料期間終了後もそのままご利用いただくために、「ご家族について」タブからご登録をお願いします。</div></div>
+  <div class="card">
+    <div class="errors" style="display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+      <span>まだお支払い方法(クレジットカード)が登録されていません。無料期間終了後もそのままご利用いただくために、お早めにご登録をお願いします。</span>
+      <?php if (!empty($family['stripe_customer_id'])): ?>
+        <a class="mp-btn" href="/mypage_billing.php" style="margin-top:0; white-space:nowrap;"><?= Layout::icon('card') ?> カードを登録する</a>
+      <?php endif; ?>
+    </div>
+  </div>
 <?php endif; ?>
 
 <?php foreach ($tabs as $i => $tab): ?>
