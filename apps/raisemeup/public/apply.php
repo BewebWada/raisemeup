@@ -396,13 +396,13 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
 <div class="card">
   <?php renderStepIndicator([1 => 'current']); ?>
   <h1>TAYORI ご利用申込</h1>
-  <p>ご家族様が代わってお申込みください。お申込み後、<?= TRIAL_DAYS ?>日間無料でお試しいただけます。</p>
+  <p>お申込者様が代わってお申込みください。お申込み後、<?= TRIAL_DAYS ?>日間無料でお試しいただけます。</p>
   <div class="notice-important">
     <div class="notice-title"><?= Layout::icon('shield') ?> ご注意ください</div>
-    <p>お申込みは、<span class="highlight">ご家族様ご自身のスマートフォンまたはパソコン</span>で行ってください。</p>
+    <p>お申込みは、<span class="highlight">お申込者様ご自身のスマートフォンまたはパソコン</span>で行ってください。</p>
     <ol class="notice-steps">
-      <li><span class="num">1</span><span>このページで<strong>ご家族様</strong>がお申込み情報を入力・送信します</span></li>
-      <li><span class="num">2</span><span>お申込み後、<strong>ご家族様ご自身の端末</strong>でLINE連携を行います</span></li>
+      <li><span class="num">1</span><span>このページで<strong>お申込者様</strong>がお申込み情報を入力・送信します</span></li>
+      <li><span class="num">2</span><span>お申込み後、<strong>お申込者様ご自身の端末</strong>でLINE連携を行います</span></li>
       <li><span class="num">3</span><span>続けて、<strong>ご利用者様(ご本人)</strong>へ連携用のURLをお送りいただきます</span></li>
     </ol>
   </div>
@@ -448,10 +448,10 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
       <input type="text" id="user_last_name" name="user_last_name" value="<?= h($v['user_last_name']) ?>" placeholder="姓">
       <input type="text" id="user_first_name" name="user_first_name" value="<?= h($v['user_first_name']) ?>" placeholder="名">
     </div>
-    <div class="hint">任意です。ご登録いただくと、マイページやご家族向けの通知にこのお名前を表示します(あとからマイページで登録・変更することもできます)</div>
+    <div class="hint">任意です。ご登録いただくと、マイページやお申込者様への通知にこのお名前を表示します(あとからマイページで登録・変更することもできます)</div>
 
     <label for="relation">ご利用者様との続柄</label>
-    <div class="hint">ご利用者様から見て、お申込みされる<strong>ご家族様(あなた)</strong>が何にあたるかをご記入ください</div>
+    <div class="hint">ご利用者様から見て、お申込みされる<strong>お申込者様(あなた)</strong>が何にあたるかをご記入ください</div>
     <input type="text" id="relation" name="relation" value="<?= h($v['relation']) ?>" placeholder="例: 息子、娘、ケアマネージャー">
 
     <label for="user_phone">電話番号</label>

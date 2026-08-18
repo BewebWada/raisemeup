@@ -141,7 +141,7 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
   ]); ?>
   <?php if ($allDone): ?>
     <h1><span class="done-icon">✓</span> ご登録が完了しました</h1>
-    <p>ご本人・ご家族とも、LINE連携まですべて完了しました。ここまでのお申込み内容は以下の通りです。</p>
+    <p>ご本人・お申込者様とも、LINE連携まですべて完了しました。ここまでのお申込み内容は以下の通りです。</p>
 
     <dl class="summary-box">
       <dt>お申込みプラン</dt>
@@ -152,7 +152,7 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
       <dd><?= h($r['companion_name']) ?></dd>
       <dt>ご利用者様</dt>
       <dd><?= h($r['user_display_name']) ?>様 (LINE連携済み)</dd>
-      <dt>ご家族向け通知</dt>
+      <dt>お申込者様への通知</dt>
       <dd>連携済み</dd>
     </dl>
 
@@ -174,10 +174,10 @@ function renderDone(int $userId, int $familyId, PDO $pdo, bool $paymentPending, 
       <div class="errors">LINEとの連携がうまくいきませんでした。お手数ですが、もう一度お試しください。</div>
     <?php endif; ?>
 
-    <p>まず<strong>ご家族様ご自身</strong>のスマートフォンで①のLINE連携をお願いします。続けて②で、<strong><?= h($r['user_display_name']) ?></strong>様(ご利用者様ご本人)へ連携用のURLをお送りいただきます。</p>
+    <p>まず<strong>お申込者様ご自身</strong>のスマートフォンで①のLINE連携をお願いします。続けて②で、<strong><?= h($r['user_display_name']) ?></strong>様(ご利用者様ご本人)へ連携用のURLをお送りいただきます。</p>
 
     <?php renderLineStep(
-      '① ご家族向け通知の連携(必須)',
+      '① お申込者様への通知の連携(必須)',
       'family',
       Config::get('LINE_FAMILY_BOT_DISPLAY_NAME', 'TAYORIサポート'),
       $familyLineLinked,
@@ -424,7 +424,7 @@ function renderUserHandoffStep(
         <li><span class="guide-icon"><?= Layout::icon('check') ?></span><span>ご本人が完了したら、下のボタンで確認する</span></li>
       </ol>
       <button type="button" class="button secondary" onclick="location.reload()">ご本人の連携が完了したか確認する</button>
-      <p class="hint" style="margin-top:12px;">現在、ご本人にLINE連携をお願いしている状態です。連携が完了次第、ご家族様のLINEにもお知らせが届きます。この画面を閉じてお待ちいただいても構いません。</p>
+      <p class="hint" style="margin-top:12px;">現在、ご本人にLINE連携をお願いしている状態です。連携が完了次第、お申込者様のLINEにもお知らせが届きます。この画面を閉じてお待ちいただいても構いません。</p>
       <?php if ($fallbackAddFriendUrl !== '' && $inviteCode !== null): ?>
         <details class="fallback">
           <summary>URLが開けない場合はこちら</summary>
