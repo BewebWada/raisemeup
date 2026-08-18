@@ -74,12 +74,18 @@ class StripeClient
 
     // Stripeがホストするお支払い管理画面(カード変更・請求書履歴・解約)のセッションを発行する。
     // 事前にStripeダッシュボード側で「Customer portal」の設定(何を許可するか)が必要
-    public function createBillingPortalSession(string $customerId, string $returnUrl): array
+    // $flowType: 'payment_method_update' を渡すと、ポータルのトップ画面を経由せず
+    // カード追加画面へ直接ディープリンクする(未指定ならポータルのトップ画面)
+    public function createBillingPortalSession(string $customerId, string $returnUrl, ?string $flowType = null): array
     {
-        return $this->request('POST', '/billing_portal/sessions', [
+        $params = [
             'customer' => $customerId,
             'return_url' => $returnUrl,
-        ]);
+        ];
+        if ($flowType !== null) {
+            $params['flow_data'] = ['type' => $flowType];
+        }
+        return $this->request('POST', '/billing_portal/sessions', $params);
     }
 
     // Stripe-Signatureヘッダを検証し、ペイロードをデコードして返す。検証失敗時は例外を投げる。

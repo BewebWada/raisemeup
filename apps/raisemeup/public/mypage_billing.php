@@ -24,10 +24,18 @@ if ($family === null || empty($family['stripe_customer_id'])) {
     exit;
 }
 
+// カード未登録時の「カードを登録する」ボタンからは ?flow=payment_method_update を付けてもらい、
+// ポータルのトップ画面を経由せずカード追加画面へ直接ディープリンクする
+$allowedFlows = ['payment_method_update'];
+$flowType = $_GET['flow'] ?? null;
+if (!in_array($flowType, $allowedFlows, true)) {
+    $flowType = null;
+}
+
 try {
     $stripe = new StripeClient(Config::get('STRIPE_SECRET_KEY', ''));
     $baseUrl = rtrim(Config::get('APP_BASE_URL', ''), '/');
-    $portalSession = $stripe->createBillingPortalSession($family['stripe_customer_id'], $baseUrl . '/mypage/');
+    $portalSession = $stripe->createBillingPortalSession($family['stripe_customer_id'], $baseUrl . '/mypage/', $flowType);
     header('Location: ' . $portalSession['url']);
     exit;
 } catch (Throwable $e) {
