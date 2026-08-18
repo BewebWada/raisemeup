@@ -60,35 +60,37 @@ function notifyFamilyEmail(?MailClient $mailClient, ?string $email, string $subj
     }
 }
 
-// --- 1. トライアル終了3日前のリマインド ---
-// trial_ends_atの「日付」がちょうど3日後のtrial契約だけを抽出するので、cronが毎日1回実行される限り
+// --- 1. トライアル終了前のリマインド(3日前・1日前) ---
+// trial_ends_atの「日付」がちょうどN日後のtrial契約だけを抽出するので、cronが毎日1回実行される限り
 // 送信済みフラグを持たなくても自然に1回だけ発火する
-$stmt = $pdo->query(
-    "SELECT s.id, u.display_name AS user_display_name, u.full_name AS user_full_name, fa.line_user_id AS family_line_user_id,
-            p.name AS plan_name, p.price_yen, s.trial_ends_at, s.payment_customer_ref
-     FROM subscriptions s
-     JOIN users u ON u.id = s.user_id
-     JOIN family_accounts fa ON fa.id = s.family_account_id
-     JOIN plans p ON p.id = s.plan_id
-     WHERE s.status = 'trial' AND DATE(s.trial_ends_at) = DATE_ADD(CURDATE(), INTERVAL 3 DAY)"
-);
-$reminderCount = 0;
-foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-    // 家族への通知は、会話用の呼び名ではなくマイページ登録の氏名を優先する
-    $displayName = $row['user_full_name'] ?: $row['user_display_name'] ?: 'ご利用者様';
-    $priceText = "{$row['plan_name']}(月額" . number_format((int) $row['price_yen']) . "円)";
-    if (!empty($row['payment_customer_ref'])) {
-        // Stripeでカード登録済み: 何もしなくても自動課金される旨の案内のみ
-        $text = "【TAYORI】{$displayName}様の無料期間は、あと3日で終了します(" . substr($row['trial_ends_at'], 0, 10) . "まで)。"
-            . "登録済みのお支払い方法で、自動的に{$priceText}のお支払いに移行します。特にお手続きは不要です。";
-    } else {
-        $text = "【TAYORI】{$displayName}様の無料期間は、あと3日で終了します(" . substr($row['trial_ends_at'], 0, 10) . "まで)。"
-            . "引き続きご利用いただくには、{$priceText}へのお支払い情報のご登録をお願いいたします。";
+foreach ([3, 1] as $reminderDays) {
+    $stmt = $pdo->query(
+        "SELECT s.id, u.display_name AS user_display_name, u.full_name AS user_full_name, fa.line_user_id AS family_line_user_id,
+                p.name AS plan_name, p.price_yen, s.trial_ends_at, s.payment_customer_ref
+         FROM subscriptions s
+         JOIN users u ON u.id = s.user_id
+         JOIN family_accounts fa ON fa.id = s.family_account_id
+         JOIN plans p ON p.id = s.plan_id
+         WHERE s.status = 'trial' AND DATE(s.trial_ends_at) = DATE_ADD(CURDATE(), INTERVAL {$reminderDays} DAY)"
+    );
+    $reminderCount = 0;
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        // 家族への通知は、会話用の呼び名ではなくマイページ登録の氏名を優先する
+        $displayName = $row['user_full_name'] ?: $row['user_display_name'] ?: 'ご利用者様';
+        $priceText = "{$row['plan_name']}(月額" . number_format((int) $row['price_yen']) . "円)";
+        if (!empty($row['payment_customer_ref'])) {
+            // Stripeでカード登録済み: 何もしなくても自動課金される旨の案内のみ
+            $text = "【TAYORI】{$displayName}様の無料期間は、あと{$reminderDays}日で終了します(" . substr($row['trial_ends_at'], 0, 10) . "まで)。"
+                . "登録済みのお支払い方法で、自動的に{$priceText}のお支払いに移行します。特にお手続きは不要です。";
+        } else {
+            $text = "【TAYORI】{$displayName}様の無料期間は、あと{$reminderDays}日で終了します(" . substr($row['trial_ends_at'], 0, 10) . "まで)。"
+                . "引き続きご利用いただくには、{$priceText}へのお支払い情報のご登録をお願いいたします。";
+        }
+        notifyFamily($lineClient, $row['family_line_user_id'], $text);
+        $reminderCount++;
     }
-    notifyFamily($lineClient, $row['family_line_user_id'], $text);
-    $reminderCount++;
+    echo "[OK] trial reminder ({$reminderDays} days before) sent: {$reminderCount}\n";
 }
-echo "[OK] trial reminder (3 days before) sent: {$reminderCount}\n";
 
 // --- 2. トライアル終了(カード未登録=Stripe未連携の契約のみ対象) ---
 // カード登録済みの契約はStripe側で自動課金が走り、その成否はstripe_webhook.phpがstatusに反映するので
