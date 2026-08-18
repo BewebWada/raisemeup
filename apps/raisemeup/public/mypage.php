@@ -470,6 +470,9 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
         <a class="mp-btn" href="/mypage_billing.php" style="margin-top:0; white-space:nowrap;"><?= Layout::icon('card') ?> カードを登録する</a>
       <?php endif; ?>
     </div>
+    <?php if (!empty($family['stripe_customer_id'])): ?>
+      <div class="hint">ボタンを押すと、決済代行会社Stripeのカード登録ページに移動します。カード番号などを入力して保存すると、この画面に戻ります。</div>
+    <?php endif; ?>
   </div>
 <?php endif; ?>
 
@@ -591,9 +594,11 @@ function renderFamilyPanel(array $family, bool $savedFamily, string $familyAddFr
       <?php if ($cardMissing): ?>
         <p class="empty-hint" style="color:#a12a1f;">まだクレジットカードが登録されていません。無料期間終了後もそのままご利用いただくために、お早めのご登録をお願いします。</p>
         <a class="mp-btn" href="/mypage_billing.php"><?= Layout::icon('card') ?> カードを登録する</a>
+        <div class="hint">ボタンを押すと、決済代行会社Stripeのカード登録ページに移動します。カード番号などを入力して保存すると、この画面に戻ります。</div>
       <?php else: ?>
         <p class="empty-hint">ご登録の全利用者様分のお支払い方法・請求書をまとめて管理できます。</p>
         <a class="mp-btn" href="/mypage_billing.php"><?= Layout::icon('card') ?> お支払い方法・請求書を管理する</a>
+        <div class="hint">ボタンを押すと、決済代行会社Stripeの管理ページに移動します。操作が終わると、この画面に戻ります。</div>
       <?php endif; ?>
     <?php else: ?>
       <p class="empty-hint" style="color:#a12a1f;">お支払い情報は未登録です。お手数ですがsupport@tayori-net.jpまでご連絡ください。</p>
