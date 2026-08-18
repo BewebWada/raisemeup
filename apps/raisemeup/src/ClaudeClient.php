@@ -461,11 +461,13 @@ PROMPT;
      * (呼び出し側は空文字ならメッセージを送らず、次回のバッチ実行に委ねる想定)。
      * $hadPendingWorry: 未解除のurgent_silence_alerts(心配して位置情報を尋ねたが返信が無い状態)があるかどうか。
      * trueの場合、それを踏まえたトーンで話しかける(通常の軽い雑談にすり替わらないようにする)
-     * $recentOutboundMessages: 直近でこちらから送った会話文の一覧(新しい順、数件程度)。要約に載る事実の
-     *   引き出しが少ない利用者ほど、同じ話題(例:トマトの収穫)を毎回持ち出しがちになるため、
-     *   直近の話題を明示的に避けさせる材料として渡す。呼び出せない・データが無い場合は空配列でよい
+     * $recentExchanges: 直近でこちらから送った話しかけと、それに対する利用者の返信のペアの一覧(新しい順、
+     *   数件程度、send_proactive_messages.php::getRecentExchanges)。要約に載る事実の引き出しが少ない
+     *   利用者ほど同じ話題(例:トマトの収穫)を毎回持ち出しがちになるため重複を避ける材料であると同時に、
+     *   利用者の返信ぶり(食いついて詳しく返してきたか、素っ気なかったか)から、その話題を深掘りすべきか
+     *   避けるべきかをAI自身に判断させる材料でもある。呼び出せない・データが無い場合は空配列でよい
      */
-    public function generateProactiveMessage(array $summaries, string $companionName, string $userDisplayName, ?string $userGender = null, bool $isCheckIn = false, bool $hadPendingWorry = false, array $recentOutboundMessages = [], array $topicCoverage = [], array $personaFacts = []): string
+    public function generateProactiveMessage(array $summaries, string $companionName, string $userDisplayName, ?string $userGender = null, bool $isCheckIn = false, bool $hadPendingWorry = false, array $recentExchanges = [], array $topicCoverage = [], array $personaFacts = []): string
     {
         $userLabel = $userDisplayName !== '' ? "{$userDisplayName}さん" : '利用者';
         $genderLine = match ($userGender) {
@@ -495,9 +497,11 @@ PROMPT;
 
         // 話題の引き出しが少ないと、要約に載っている数少ない事実(例:トマトの収穫)を毎回持ち出して
         // 同じ話題ばかりになりがちなので、直近で自分から話した内容(日時ラベル付き)を渡して重複を避けさせる。
-        // $recentOutboundMessagesは['content'=>..., 'created_at'=>...]の配列(send_proactive_messages.php::getRecentOutboundMessages)
+        // 加えて、それぞれの話しかけに利用者がどう返信したか(返信ぶり)も添えることで、深掘りすべき話題と
+        // 広げなくていい話題をAI自身に判断させる。$recentExchangesは['content'=>..., 'created_at'=>...,
+        // 'user_reply'=>...|null]の配列(send_proactive_messages.php::getRecentExchanges)
         $weekdaysForLabel = ['日', '月', '火', '水', '木', '金', '土'];
-        $recentTopicsBlock = empty($recentOutboundMessages)
+        $recentTopicsBlock = empty($recentExchanges)
             ? '(まだ話しかけた記録がありません)'
             : implode("\n", array_map(function (array $m) use ($weekdaysForLabel) {
                 $label = '';
@@ -505,8 +509,11 @@ PROMPT;
                     $at = new DateTime((string) $m['created_at'], new DateTimeZone('Asia/Tokyo'));
                     $label = '(' . $at->format('n/j') . '(' . $weekdaysForLabel[(int) $at->format('w')] . ') ' . $at->format('H:i') . ') ';
                 }
-                return '・' . $label . ($m['content'] ?? '');
-            }, $recentOutboundMessages));
+                $replyPart = !empty($m['user_reply'])
+                    ? "\n  → 利用者の返信: " . $m['user_reply']
+                    : "\n  → (返信なし)";
+                return '・' . $label . ($m['content'] ?? '') . $replyPart;
+            }, $recentExchanges));
 
         $topicContext = self::buildTopicCoverageContext($topicCoverage);
         // 直前に「大丈夫かな」と心配して連絡した直後は、新しい話題(自己紹介・未着手ジャンルの質問等)を
@@ -581,7 +588,7 @@ PROMPT;
 【自己レビューメモ(過去の自分の受け答えを振り返って気をつけるべき点。定期的に自動更新される)】
 {$conversationNotesBlock}
 
-【直近で自分から話しかけた内容(新しい順、日時付き)】
+【直近で自分から話しかけた内容と、それへの利用者の返信(新しい順、日時付き)】
 {$recentTopicsBlock}
 
 【自己紹介期間の話題カバレッジ】
@@ -599,12 +606,15 @@ PROMPT;
 - 1〜2文の短い挨拶・話しかけにすること(質問攻めにしない)
 {$avoidStockPhraseLine}
 {$topicGuidanceLine}
-- 上記の【直近で自分から話しかけた内容】と同じ話題を続けて持ち出さないこと。特に直近24時間以内に
-  触れた話題は、日付が変わっていても(前日の夜〜今日の朝のように間隔が短い場合を含め)避けること
-- 「畑」「トマト」のように具体的な言い回し・切り口を変えただけの使い回しは不十分です。上記一覧のうち
-  直近3件中2件以上、または半数以上が同じ大枠の話題(例:畑仕事)に触れている場合、新しい切り口を
-  探すのではなく、その話題自体を今回は避けること。分かっている情報がその話題しかない場合も、毎回
-  無理に絡めようとせず、季節や天気の話、または用件のない軽い挨拶だけで済ませて構わない
+- 上記の【直近で自分から話しかけた内容と、それへの利用者の返信】のうち、利用者の返信が素っ気ない
+  (一言だけ、話が広がらない等)か返信が無かった話題は、同じ話題を続けて持ち出さないこと。特に
+  直近24時間以内に触れた話題は、日付が変わっていても(前日の夜〜今日の朝のように間隔が短い場合を
+  含め)避けること。「畑」「トマト」のように具体的な言い回し・切り口を変えただけの使い回しも不十分。
+  分かっている情報がその話題しかない場合も、毎回無理に絡めようとせず、季節や天気の話、または
+  用件のない軽い挨拶だけで済ませて構わない
+- 一方、利用者の返信が具体的・詳しく・楽しそうだった話題は、話が盛り上がっている途中である可能性が
+  高いので、無理に新しい話題へ切り替えず、その返信の内容を受けて一歩踏み込んだ質問をしてよい
+  (ただし2〜3回連続で同じ話題を深掘りしたら、しつこくならないよう一旦区切りをつけること)
 - 返信を強制するような重い内容(健康不安を煽る等)は避けること
 - LINEでのやり取りなので、気持ちに合った絵文字を1〜2個程度、自然に添えること
 - 出力はメッセージ本文のみ。前置き・カギカッコ・署名は不要

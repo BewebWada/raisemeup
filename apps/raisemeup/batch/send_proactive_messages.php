@@ -233,19 +233,46 @@ function getRecentHistoryForUser(PDO $pdo, int $userId, int $limit = 10): array
     ], $rows);
 }
 
-// 直近でこちらから送った会話文(新しい順、日時付き)。generateProactiveMessageが、要約に載る事実が
-// 少ない利用者ほど同じ話題(トマトの収穫等)を毎回持ち出してしまう問題を避けるための材料として使う。
+// 直近$limit件の「こちらからの話しかけ(outbound)」を、それに続く「利用者の返信(inbound)」と
+// ペアにして返す(新しい順、日時付き)。generateProactiveMessageが、同じ話題(トマトの収穫等)を
+// 毎回持ち出してしまう問題を避ける材料であると同時に、その話題に利用者がどれくらい乗ってきたか
+// (食いついたか、素っ気なかったか)をAIが読み取って深掘り判断する材料としても使う。
 // 日時を持たせているのは、日をまたいだ朝夕のチェックインでも前日の話題を蒸し返さないようにするため
-// (limit=8は、1日2回のCHECKIN_WINDOWS+気まぐれな声かけを合わせて概ね2日分をカバーする目安)
-function getRecentOutboundMessages(PDO $pdo, int $userId, int $limit = 8): array
+// (limit=8は、1日2回のCHECKIN_WINDOWS+気まぐれな声かけを合わせて概ね2日分をカバーする目安)。
+// 返信が無かった話題はuser_reply=nullになる。取りこぼしを避けるため$limitの6倍を取得してから
+// outbound起点でペアリングし、直近$limit件に絞る
+function getRecentExchanges(PDO $pdo, int $userId, int $limit = 8): array
 {
     $stmt = $pdo->prepare(
-        "SELECT content, created_at FROM conversations WHERE user_id = ? AND direction = 'outbound' ORDER BY created_at DESC LIMIT ?"
+        "SELECT direction, content, created_at FROM conversations
+         WHERE user_id = ? AND message_type = 'text'
+         ORDER BY created_at DESC LIMIT ?"
     );
     $stmt->bindValue(1, $userId, PDO::PARAM_INT);
-    $stmt->bindValue(2, $limit, PDO::PARAM_INT);
+    $stmt->bindValue(2, $limit * 6, PDO::PARAM_INT);
     $stmt->execute();
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $rows = array_reverse($stmt->fetchAll(PDO::FETCH_ASSOC)); // 古い順に並び替えてから走査
+
+    $exchanges = [];
+    $pendingReplyParts = [];
+    foreach ($rows as $row) {
+        if ($row['direction'] === 'inbound') {
+            if (!empty($exchanges)) {
+                $pendingReplyParts[] = $row['content'];
+            }
+            continue;
+        }
+        if (!empty($exchanges) && !empty($pendingReplyParts)) {
+            $exchanges[count($exchanges) - 1]['user_reply'] = implode("\n", $pendingReplyParts);
+        }
+        $pendingReplyParts = [];
+        $exchanges[] = ['content' => $row['content'], 'created_at' => $row['created_at'], 'user_reply' => null];
+    }
+    if (!empty($exchanges) && !empty($pendingReplyParts)) {
+        $exchanges[count($exchanges) - 1]['user_reply'] = implode("\n", $pendingReplyParts);
+    }
+
+    return array_slice(array_reverse($exchanges), 0, $limit);
 }
 
 // 初回のみ、AIコンパニオン自身の軽い自己紹介を生成して保存する(以降は固定して使い回す)。
@@ -680,7 +707,7 @@ if ($isQuietHoursNow) {
         $personaFacts = ensureCompanionPersonaForBatchRow($row, $claudeClient, $userRepo);
         $companionName = $row['companion_name'] ?: 'たより';
         $hadPendingWorry = hasPendingUrgentSilenceAlert($pdo, (int) $row['id']);
-        $recentOutboundMessages = getRecentOutboundMessages($pdo, (int) $row['id']);
+        $recentExchanges = getRecentExchanges($pdo, (int) $row['id']);
         $text = $claudeClient->generateProactiveMessage(
             $summaries,
             $companionName,
@@ -688,7 +715,7 @@ if ($isQuietHoursNow) {
             $row['gender'],
             $isGuaranteed,
             $hadPendingWorry,
-            $recentOutboundMessages,
+            $recentExchanges,
             $topicCoverage,
             $personaFacts
         );
