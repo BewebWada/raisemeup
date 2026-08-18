@@ -266,7 +266,8 @@ $familyAddFriendUrl = Config::get('LINE_FAMILY_ADD_FRIEND_URL', '');
 $panels = [];
 foreach ($linkedUsers as $u) {
     $subStmt = $pdo->prepare(
-        'SELECT s.status, s.trial_ends_at, s.current_period_end, p.code AS plan_code, p.name AS plan_name, p.price_yen
+        'SELECT s.status, s.trial_ends_at, s.current_period_end, s.payment_customer_ref,
+                p.code AS plan_code, p.name AS plan_name, p.price_yen
          FROM subscriptions s JOIN plans p ON p.id = s.plan_id
          WHERE s.user_id = ? ORDER BY s.id DESC LIMIT 1'
     );
@@ -302,7 +303,19 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST' && !empty($panels)) {
     $activeTab = 'user-' . (int) $panels[0]['user']['id'];
 }
 
-renderMypage($family, $panels, $errors, $savedFamily, $savedUserId, $themeSavedUserId, $friendCheckedUserId, $activeTab, $familyAddFriendUrl);
+// カード未登録(=支払いが確定していない)契約が1件でもあれば、マイページ全体でアラートを出す。
+// payment_customer_refはStripeでCheckoutが完了して初めて入る値なので、これが無い間は
+// 無料期間終了後に自動課金されず利用停止につながる(check_subscriptions.phpのtrial_expired判定と同じ基準)
+$familyCardMissing = false;
+foreach ($panels as $panel) {
+    $sub = $panel['subscription'];
+    if ($sub !== null && in_array($sub['status'], ['trial', 'trial_expired'], true) && empty($sub['payment_customer_ref'])) {
+        $familyCardMissing = true;
+        break;
+    }
+}
+
+renderMypage($family, $panels, $errors, $savedFamily, $savedUserId, $themeSavedUserId, $friendCheckedUserId, $activeTab, $familyAddFriendUrl, $familyCardMissing);
 
 function renderLoginScreen(string $loginError): void
 {
@@ -333,7 +346,7 @@ function renderLoginScreen(string $loginError): void
 /**
  * @param array<int, array{user: array, subscription: ?array, summaries: array, riskEvents: array, todayTalkCount: int, themes: array}> $panels
  */
-function renderMypage(array $family, array $panels, array $errors, bool $savedFamily, int $savedUserId, int $themeSavedUserId, int $friendCheckedUserId, string $activeTab, string $familyAddFriendUrl): void
+function renderMypage(array $family, array $panels, array $errors, bool $savedFamily, int $savedUserId, int $themeSavedUserId, int $friendCheckedUserId, string $activeTab, string $familyAddFriendUrl, bool $familyCardMissing): void
 {
     Layout::renderHeader('mypage', 'マイページ');
 
@@ -449,6 +462,10 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
   <div class="card"><div class="errors"><?php foreach ($errors as $e): ?><div><?= h($e) ?></div><?php endforeach; ?></div></div>
 <?php endif; ?>
 
+<?php if ($familyCardMissing): ?>
+  <div class="card"><div class="errors">まだお支払い方法(クレジットカード)が登録されていません。無料期間終了後もそのままご利用いただくために、「ご家族について」タブからご登録をお願いします。</div></div>
+<?php endif; ?>
+
 <?php foreach ($tabs as $i => $tab): ?>
   <input type="radio" name="mp-view" id="mp-tab-<?= $i ?>" class="mp-tab-radio" <?= $tab['key'] === $activeTab ? 'checked' : '' ?>>
 <?php endforeach; ?>
@@ -461,7 +478,7 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
 
 <div class="mp-panels">
   <div class="mp-panel" id="mp-panel-0">
-    <?php renderFamilyPanel($family, $savedFamily, $familyAddFriendUrl); ?>
+    <?php renderFamilyPanel($family, $savedFamily, $familyAddFriendUrl, $familyCardMissing); ?>
   </div>
 
   <?php foreach ($panels as $i => $panel): ?>
@@ -509,7 +526,7 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
     Layout::renderFooter();
 }
 
-function renderFamilyPanel(array $family, bool $savedFamily, string $familyAddFriendUrl): void
+function renderFamilyPanel(array $family, bool $savedFamily, string $familyAddFriendUrl, bool $cardMissing): void
 {
     $familyFriendConfirmed = $family['line_user_id'] !== null && $family['friend_confirmed_at'] !== null;
     $familyFriendBroken = $family['line_user_id'] !== null && $family['friend_confirmed_at'] === null;
@@ -564,10 +581,15 @@ function renderFamilyPanel(array $family, bool $savedFamily, string $familyAddFr
   <div class="card">
     <h2><?= Layout::icon('card') ?> お支払い</h2>
     <?php if (!empty($family['stripe_customer_id'])): ?>
-      <p class="empty-hint">ご登録の全利用者様分のお支払い方法・請求書をまとめて管理できます。</p>
-      <a class="mp-btn" href="/mypage_billing.php"><?= Layout::icon('card') ?> お支払い方法・請求書を管理する</a>
+      <?php if ($cardMissing): ?>
+        <p class="empty-hint" style="color:#a12a1f;">まだクレジットカードが登録されていません。無料期間終了後もそのままご利用いただくために、お早めのご登録をお願いします。</p>
+        <a class="mp-btn" href="/mypage_billing.php"><?= Layout::icon('card') ?> カードを登録する</a>
+      <?php else: ?>
+        <p class="empty-hint">ご登録の全利用者様分のお支払い方法・請求書をまとめて管理できます。</p>
+        <a class="mp-btn" href="/mypage_billing.php"><?= Layout::icon('card') ?> お支払い方法・請求書を管理する</a>
+      <?php endif; ?>
     <?php else: ?>
-      <p class="empty-hint">お支払い情報は未登録です。</p>
+      <p class="empty-hint" style="color:#a12a1f;">お支払い情報は未登録です。お手数ですがsupport@tayori-net.jpまでご連絡ください。</p>
     <?php endif; ?>
   </div>
 
