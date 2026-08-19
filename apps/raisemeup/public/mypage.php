@@ -41,6 +41,46 @@ function userFamilyFacingName(array $u): string
     return (string) ($u['full_name'] ?: $u['display_name'] ?: '');
 }
 
+// カード登録(mypage_billing.phpのpayment_method_updateフロー)から戻ってきた際、まだStripe側に
+// 契約が存在しないこの家族のtrial/trial_expired契約に対して、たった今登録されたカードで実際の
+// Stripe Subscriptionを作成する。1家族に複数利用者がいる場合は全員分まとめて処理する。
+// 個別の失敗はログに残すだけで処理を止めない(カードが結局登録されていなかった等の場合は次回再試行される)
+function attachPendingStripeSubscriptions(PDO $pdo, array $family, SubscriptionRepository $subscriptionRepo): void
+{
+    $pending = $subscriptionRepo->findUnattachedForFamily((int) $family['id']);
+    if (empty($pending)) {
+        return;
+    }
+
+    $stripe = new StripeClient(Config::get('STRIPE_SECRET_KEY', ''));
+    $planStmt = $pdo->prepare('SELECT stripe_price_id FROM plans WHERE id = ?');
+
+    foreach ($pending as $sub) {
+        $planStmt->execute([$sub['plan_id']]);
+        $stripePriceId = $planStmt->fetchColumn();
+        if (empty($stripePriceId)) {
+            continue;
+        }
+
+        // 無料期間がまだ残っていればその残り日数をtrial_period_daysとして引き継ぎ、
+        // 既に無料期間が終わっている(trial_expired)場合は0を渡して即時課金する
+        $remainingSeconds = (new DateTime($sub['trial_ends_at']))->getTimestamp() - time();
+        $trialDays = $remainingSeconds > 0 ? (int) ceil($remainingSeconds / 86400) : 0;
+
+        try {
+            $stripeSub = $stripe->createSubscription(
+                (string) $family['stripe_customer_id'],
+                (string) $stripePriceId,
+                $trialDays,
+                ['family_account_id' => (string) $family['id'], 'subscription_id' => (string) $sub['id']]
+            );
+            $subscriptionRepo->attachStripeSubscription((int) $sub['id'], $stripeSub['id']);
+        } catch (Throwable $e) {
+            error_log("Stripe subscription creation failed after card registration (subscription {$sub['id']}): " . $e->getMessage());
+        }
+    }
+}
+
 const SUBSCRIPTION_STATUS_LABELS = [
     'trial' => '無料お試し中',
     'active' => 'ご利用中',
@@ -70,6 +110,13 @@ $family = $familyId !== null ? $familyRepo->find((int) $familyId) : null;
 if ($family === null) {
     renderLoginScreen((string) ($_GET['login_error'] ?? ''));
     exit;
+}
+
+// mypage_billing.php(payment_method_updateフロー)からの戻り。ポータル自体はカードをCustomerに
+// 登録するだけでSubscriptionは作らないため、たった今登録されたカードを使ってこの家族の未課金の
+// trial/trial_expired契約に対し、ここで実際のStripe Subscriptionを作成する
+if (($_GET['card_registered'] ?? '') === '1' && !empty($family['stripe_customer_id'])) {
+    attachPendingStripeSubscriptions($pdo, $family, new SubscriptionRepository($pdo));
 }
 
 if (empty($_SESSION['mypage_csrf_token'])) {

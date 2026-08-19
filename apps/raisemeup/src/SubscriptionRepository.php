@@ -81,6 +81,18 @@ class SubscriptionRepository
         $this->pdo->prepare("UPDATE subscriptions SET status = 'abandoned' WHERE id = ?")->execute([$id]);
     }
 
+    // カード登録(mypage.phpのpayment_method_updateフロー)後、まだStripe側に契約が存在しないこの家族の
+    // trial/trial_expired契約をすべて返す。1家族に複数利用者がいる場合に対応するため配列で返す
+    public function findUnattachedForFamily(int $familyAccountId): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM subscriptions WHERE family_account_id = ? AND payment_customer_ref IS NULL
+             AND status IN ('trial', 'trial_expired') ORDER BY id ASC"
+        );
+        $stmt->execute([$familyAccountId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
     // 利用者の現在有効な契約(解約・放置済みでないもの)を1件返す。CancellationServiceの解約操作の起点に使う
     public function findActiveForUser(int $userId): ?array
     {

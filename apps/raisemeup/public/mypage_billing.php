@@ -35,7 +35,11 @@ if (!in_array($flowType, $allowedFlows, true)) {
 try {
     $stripe = new StripeClient(Config::get('STRIPE_SECRET_KEY', ''));
     $baseUrl = rtrim(Config::get('APP_BASE_URL', ''), '/');
-    $portalSession = $stripe->createBillingPortalSession($family['stripe_customer_id'], $baseUrl . '/mypage/', $flowType);
+    // payment_method_updateフローの場合だけ、戻り先にcard_registered=1を付ける。マイページ側はこれを見て、
+    // たった今登録されたカードでStripe側の契約(Subscription)を実際に作成する(このポータル自体は
+    // カードをCustomerに登録するだけで、Subscriptionは作らないため)
+    $returnUrl = $baseUrl . '/mypage/' . ($flowType === 'payment_method_update' ? '?card_registered=1' : '');
+    $portalSession = $stripe->createBillingPortalSession($family['stripe_customer_id'], $returnUrl, $flowType);
     header('Location: ' . $portalSession['url']);
     exit;
 } catch (Throwable $e) {

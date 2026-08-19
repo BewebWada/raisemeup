@@ -53,13 +53,17 @@ class StripeClient
     // 既にCustomerに保存済みの支払い方法を使って、Checkoutを経由せず直接Subscriptionを作成する。
     // 家族が既に契約済み(=カード登録済み)の状態で2人目以降の利用者を追加する際に使い、
     // カード情報の再入力を発生させないための経路(1人目の初回契約はCheckout Session経由のまま)
+    // $trialDaysに0以下を渡すとtrial_period_daysを付けない(=即時課金)。無料期間が既に終わっている
+    // 状態でカードだけ後から登録された場合(mypage.php参照)に使う
     public function createSubscription(string $customerId, string $priceId, int $trialDays, array $metadata = []): array
     {
         $params = [
             'customer' => $customerId,
             'items' => [['price' => $priceId]],
-            'trial_period_days' => $trialDays,
         ];
+        if ($trialDays > 0) {
+            $params['trial_period_days'] = $trialDays;
+        }
         if (!empty($metadata)) {
             $params['metadata'] = $metadata;
         }
