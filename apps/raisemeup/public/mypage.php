@@ -400,6 +400,7 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
   .risk-item .level-medium { color:#a9711e; font-weight:bold; }
   .risk-item .level-low { color:var(--text-muted); font-weight:bold; }
   .risk-item .date { color:#999; font-size:0.8rem; }
+  .scroll-list { max-height:280px; overflow-y:auto; padding-right:2px; }
   .empty-hint { color:#999; font-size:0.9rem; }
   .copy-box { display:flex; gap:8px; margin:12px 0; flex-wrap:wrap; }
   .copy-box input.copy-input { flex:1 1 200px; min-width:0; padding:10px 12px; font-size:0.82rem; border:1px solid #ddd6c7; border-radius:10px; background:#fffdf8; color:#555; }
@@ -736,13 +737,15 @@ function renderUserPanel(array $panel, array $family, int $savedUserId, int $the
         <p class="empty-hint">直近<?= MedicationLogRepository::RETENTION_DAYS ?>日間、飲み忘れは確認されていません。</p>
       <?php else: ?>
         <p class="empty-hint" style="color:#a12a1f; margin-bottom:10px;">直近<?= MedicationLogRepository::RETENTION_DAYS ?>日間で、確認が取れなかった服薬が<?= count($missedLogs) ?>件あります。</p>
-        <?php foreach ($missedLogs as $log): ?>
-          <div class="risk-item">
-            <span class="level-medium">飲み忘れの可能性</span>
-            <span class="date">(<?= h((new DateTime($log['log_date']))->format('n月j日')) ?> <?= h(substr((string) $log['scheduled_time'], 0, 5)) ?>頃)</span>
-            <div><?= h($log['title']) ?></div>
-          </div>
-        <?php endforeach; ?>
+        <div class="scroll-list">
+          <?php foreach ($missedLogs as $log): ?>
+            <div class="risk-item">
+              <span class="level-medium">飲み忘れの可能性</span>
+              <span class="date">(<?= h((new DateTime($log['log_date']))->format('n月j日')) ?> <?= h(substr((string) $log['scheduled_time'], 0, 5)) ?>頃)</span>
+              <div><?= h($log['title']) ?></div>
+            </div>
+          <?php endforeach; ?>
+        </div>
       <?php endif; ?>
       <p class="empty-hint" style="margin-top:10px;">ご本人からLINEで「飲んだ」と返信があった分を確認済みとして記録しています。確認が取れなくても外出中など別の理由のこともあるため、ご心配な場合は直接ご様子をご確認ください。</p>
     <?php endif; ?>
