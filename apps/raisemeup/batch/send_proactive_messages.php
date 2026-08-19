@@ -542,8 +542,8 @@ function sendMedicationReminders(PDO $pdo, LineClient $lineClient, MedicationLog
     foreach ($byUser as $userId => $data) {
         $titles = array_map(fn($s) => $s['title'], $data['schedules']);
         $text = count($titles) === 1
-            ? "お薬(「{$titles[0]}」)の時間だよ。飲んだら「飲んだ」って教えてね。"
-            : '「' . implode('』『', $titles) . '』のお薬の時間だよ。飲んだら教えてね。';
+            ? "「{$titles[0]}」の時間だね。飲んだら教えてね。"
+            : '「' . implode('』『', $titles) . '』の時間だね。飲んだら教えてね。';
 
         if ($lineClient->push($data['line_user_id'], $text)) {
             logOutbound($pdo, $userId, $text, true);

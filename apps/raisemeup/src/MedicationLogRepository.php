@@ -62,6 +62,23 @@ class MedicationLogRepository
         )->execute([(int) $scheduleId, $userId]);
     }
 
+    /**
+     * マイページ「服薬状況」表示用。直近$days日分の記録を新しい順で返す(タイトル・服薬時刻はschedulesから)。
+     * @return array<int, array{title:string, scheduled_time:string, log_date:string, status:string}>
+     */
+    public function getRecentForUser(int $userId, int $days = 14): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT m.log_date, m.status, s.title, TIME(s.scheduled_at) AS scheduled_time
+             FROM medication_logs m
+             JOIN schedules s ON s.id = m.schedule_id
+             WHERE m.user_id = ? AND m.log_date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+             ORDER BY m.log_date DESC, s.scheduled_at DESC"
+        );
+        $stmt->execute([$userId, $days]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
     // 送信済みだが確認が取れなかった前日以前の分を、まとめて「見送り」として確定する(regenerate_summaries.php用)
     public function markStalePendingAsMissed(): int
     {

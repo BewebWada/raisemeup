@@ -7,6 +7,7 @@ require_once __DIR__ . '/../src/SummaryRepository.php';
 require_once __DIR__ . '/../src/RiskEventRepository.php';
 require_once __DIR__ . '/../src/FamilyThemeRepository.php';
 require_once __DIR__ . '/../src/DocumentTextRepository.php';
+require_once __DIR__ . '/../src/MedicationLogRepository.php';
 require_once __DIR__ . '/../src/LineLoginClient.php';
 require_once __DIR__ . '/../src/LineClient.php';
 require_once __DIR__ . '/../src/FriendConfirmationService.php';
@@ -23,6 +24,7 @@ $familyRepo = new FamilyAccountRepository($pdo);
 $userRepo = new UserRepository($pdo);
 $familyThemeRepo = new FamilyThemeRepository($pdo);
 $documentTextRepo = new DocumentTextRepository($pdo);
+$medicationLogRepo = new MedicationLogRepository($pdo);
 
 function h(string $value): string
 {
@@ -53,6 +55,10 @@ const SUMMARY_TYPE_LABELS = [
 ];
 
 const RISK_LEVEL_LABELS = ['low' => '低', 'medium' => '中', 'high' => '高'];
+
+// 「服薬状況」カードで遡って表示する日数。send_proactive_messages.phpのリマインド・
+// regenerate_summaries.phpのmissed確定と合わせて、直近の傾向が分かれば十分なため2週間分に絞る
+const MEDICATION_LOG_DISPLAY_DAYS = 14;
 
 // 安心レポートでリスクアラート(検知結果の表示・通知)を出すプラン。ConversationHandlerの
 // RISK_NOTIFY_PLAN_CODESと揃えている(premium_medicalはfamily_watchの上位互換のため含む)。
@@ -290,6 +296,7 @@ foreach ($linkedUsers as $u) {
         'todayTalkCount' => (int) $talkCountStmt->fetchColumn(),
         'themes' => $familyThemeRepo->getActiveForUser((int) $u['id']),
         'documentTexts' => $documentTextRepo->getActiveForUser((int) $u['id']),
+        'medicationLogs' => $medicationLogRepo->getRecentForUser((int) $u['id'], MEDICATION_LOG_DISPLAY_DAYS),
         'userLineLinked' => $userLineLinked,
         'userFriendConfirmed' => $u['status'] !== 'pending' && $u['friend_confirmed_at'] !== null,
         'userLoginUrl' => $userLoginUrl,
@@ -720,6 +727,28 @@ function renderUserPanel(array $panel, array $family, int $savedUserId, int $the
         <dd><?= (int) $panel['todayTalkCount'] ?>回</dd>
       </dl>
       <p class="empty-hint">気になる会話の検知・通知など、より詳しい見守りは寄り添いスタンダード以上でご利用いただけます。</p>
+    <?php endif; ?>
+  </div>
+
+  <div class="card">
+    <h2><?= Layout::icon('pill') ?> 服薬状況</h2>
+    <?php if (empty($panel['medicationLogs'])): ?>
+      <p class="empty-hint">現在、服薬のリマインドは登録されていません。</p>
+    <?php else: ?>
+      <?php $missedLogs = array_values(array_filter($panel['medicationLogs'], fn($l) => $l['status'] === 'missed')); ?>
+      <?php if (empty($missedLogs)): ?>
+        <p class="empty-hint">直近<?= MEDICATION_LOG_DISPLAY_DAYS ?>日間、飲み忘れは確認されていません。</p>
+      <?php else: ?>
+        <p class="empty-hint" style="color:#a12a1f; margin-bottom:10px;">直近<?= MEDICATION_LOG_DISPLAY_DAYS ?>日間で、確認が取れなかった服薬が<?= count($missedLogs) ?>件あります。</p>
+        <?php foreach ($missedLogs as $log): ?>
+          <div class="risk-item">
+            <span class="level-medium">飲み忘れの可能性</span>
+            <span class="date">(<?= h((new DateTime($log['log_date']))->format('n月j日')) ?> <?= h(substr((string) $log['scheduled_time'], 0, 5)) ?>頃)</span>
+            <div><?= h($log['title']) ?></div>
+          </div>
+        <?php endforeach; ?>
+      <?php endif; ?>
+      <p class="empty-hint" style="margin-top:10px;">ご本人からLINEで「飲んだ」と返信があった分を確認済みとして記録しています。確認が取れなくても外出中など別の理由のこともあるため、ご心配な場合は直接ご様子をご確認ください。</p>
     <?php endif; ?>
   </div>
 
