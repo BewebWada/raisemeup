@@ -46,6 +46,7 @@ class Layout
         'heart' => '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
         'copy' => '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
         'pill' => '<path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/>',
+        'alert' => '<path d="M12 3.5 2.3 20.5h19.4L12 3.5Z"/><path d="M12 9.5v5.2"/><circle cx="12" cy="17.3" r="1" fill="currentColor" stroke="none"/>',
     ];
 
     public static function icon(string $name, string $class = ''): string

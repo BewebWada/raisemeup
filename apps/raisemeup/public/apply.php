@@ -371,6 +371,10 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
   .errors { background:#fdecea; border:1px solid #f5b0a8; color:#a12a1f; padding:12px 16px; border-radius:8px; margin-bottom:16px; }
   .notice { background:#eef2ea; border:1px solid #cfdbc4; color:#333; padding:12px 16px; border-radius:8px; margin-bottom:16px; line-height:1.6; }
   .notice a { color:#4B8B5A; font-weight:bold; }
+  .notice-alert { display:flex; gap:10px; align-items:flex-start; background:#fdecea; border:1px solid #f0b4a8; color:#7a241a; padding:14px 16px; border-radius:8px; margin-bottom:16px; line-height:1.6; }
+  .notice-alert .icon { width:1.4em; height:1.4em; flex-shrink:0; margin-top:1px; color:#a12a1f; }
+  .notice-alert strong { display:block; color:#a12a1f; margin-bottom:2px; }
+  .notice-alert a { color:#a12a1f; font-weight:bold; }
   .card button { display:inline-flex; align-items:center; justify-content:center; gap:10px; margin-top:24px; width:100%; padding:14px; font-size:1.05rem; background:#4B8B5A; color:#fff; border:none; border-radius:8px; cursor:pointer; }
   .card button .icon { width:1.35em; height:1.35em; }
   .card button:hover { background:#1E4729; }
@@ -409,14 +413,17 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
 
   <?php if ($duplicateFamily !== null): ?>
     <?php $resumable = (int) ($_SESSION['apply_result']['family_id'] ?? 0) === (int) $duplicateFamily['id']; ?>
-    <div class="notice">
+    <div class="notice-alert">
+      <?= Layout::icon('alert') ?>
+      <div>
       <?php if ($resumable): ?>
-        このメールアドレスでは、完了していないお申込みがあります。<a href="/apply/?done=1">続きはこちらから</a>お進みください。
+        <strong>入力途中のお申込みがあります</strong>このメールアドレスでは、完了していないお申込みがあります。<a href="/apply/?done=1">続きはこちらから</a>お進みください。
       <?php elseif ($duplicateCanLogin): ?>
-        このメールアドレスは既にご登録済みです。お手数ですが<a href="/mypage_login_start.php">マイページにログイン</a>してご確認ください。
+        <strong>ご確認ください</strong>このメールアドレスは既にご登録済みです。お手数ですが<a href="/mypage_login_start.php">マイページにログイン</a>してご確認ください。
       <?php else: ?>
-        このメールアドレスでは既にお申込みをいただいています。心当たりがない場合や、続きのお手続きについては<a href="mailto:support@tayori-net.jp">support@tayori-net.jp</a>までご連絡ください。
+        <strong>ご確認ください</strong>このメールアドレスでは既にお申込みをいただいています。心当たりがない場合や、続きのお手続きについては<a href="mailto:support@tayori-net.jp">support@tayori-net.jp</a>までご連絡ください。
       <?php endif; ?>
+      </div>
     </div>
   <?php elseif (!empty($errors)): ?>
     <div class="errors">

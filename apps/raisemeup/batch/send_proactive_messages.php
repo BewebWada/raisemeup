@@ -440,6 +440,9 @@ function checkUrgentSilenceAndNotify(
  * 枠開始〜現在時刻の間にinbound(利用者からの発言)が一件もなければ「応答なし」と判定し、
  * 寄り添いスタンダード以上の契約者にのみLINE通知する。プラン対象外でも判定結果自体は記録し、
  * 同じ枠を何度も再チェックしないようにする。
+ * onboarded_atが枠の開始時刻より後(=その枠が始まった時点でまだ利用開始していなかった)の利用者は対象外にする。
+ * これが無いと、枠の途中や終了後にオンボードした利用者を「(存在すらしていなかった時間帯に)応答が無かった」
+ * と誤判定してしまう(次の枠からは正しく判定対象になる)
  */
 function checkNoResponseAndNotify(
     PDO $pdo,
@@ -460,6 +463,7 @@ function checkNoResponseAndNotify(
         "SELECT u.id, u.display_name, u.full_name
          FROM users u
          WHERE u.status = 'active' AND u.line_user_id IS NOT NULL
+           AND u.onboarded_at <= ?
            AND NOT EXISTS (
              SELECT 1 FROM conversations c
              WHERE c.user_id = u.id AND c.direction = 'inbound'
@@ -470,7 +474,13 @@ function checkNoResponseAndNotify(
              WHERE w.user_id = u.id AND w.check_date = ? AND w.window_label = ?
            )"
     );
-    $stmt->execute([$windowStart->format('Y-m-d H:i:s'), $now->format('Y-m-d H:i:s'), $checkDate, $window['label']]);
+    $stmt->execute([
+        $windowStart->format('Y-m-d H:i:s'),
+        $windowStart->format('Y-m-d H:i:s'),
+        $now->format('Y-m-d H:i:s'),
+        $checkDate,
+        $window['label'],
+    ]);
 
     $notifiedCount = 0;
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
