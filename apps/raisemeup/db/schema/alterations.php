@@ -171,4 +171,11 @@ return [
     'conversations.is_notification' => "ALTER TABLE conversations
         ADD COLUMN IF NOT EXISTS is_notification BOOLEAN NOT NULL DEFAULT FALSE
         COMMENT '服薬リマインド等、事務的な一方通知かどうか。気まぐれ雑談・安否確認チェックインの会話成立判定からは除外する' AFTER message_type;",
+
+    // 解約(利用者ごと/申込者による全解約)は即時停止ではなく期間終了時解約(Stripeのcancel_at_period_end)を
+    // 予約する方針のため、その予定日時をマイページ表示用に保持する。実際のstatus変更は期間終了時に届く
+    // customer.subscription.deleted Webhookで行う(CancellationService::finalizeTermination参照)
+    'subscriptions.cancel_at' => "ALTER TABLE subscriptions
+        ADD COLUMN IF NOT EXISTS cancel_at DATETIME DEFAULT NULL
+        COMMENT '期間終了時解約の予定日時。予約中のみ設定される' AFTER current_period_end;",
 ];

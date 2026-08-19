@@ -144,4 +144,13 @@ class FamilyAccountRepository
             'UPDATE family_accounts SET name = ?, email = ?, phone = ? WHERE id = ?'
         )->execute([$data['name'], $data['email'] ?: null, $data['phone'] ?: null, $id]);
     }
+
+    // 解約によりこの利用者との紐づけを外す(マイページの利用者一覧・通知対象から外れる)。
+    // family_accounts自体のレコードは残す(申込者=ペイヤーの契約記録・再度の利用者追加のため)
+    public function deactivateLink(int $userId, int $familyAccountId): void
+    {
+        $this->pdo->prepare(
+            'UPDATE user_family_links SET is_active = 0 WHERE user_id = ? AND family_account_id = ?'
+        )->execute([$userId, $familyAccountId]);
+    }
 }

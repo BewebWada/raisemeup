@@ -210,6 +210,11 @@ class ConversationHandler
             $this->resolveUnlinkedSender($lineUserId, trim($userMessage), $lineMessageId, $replyToken);
             return;
         }
+        if ($user['status'] === 'terminated') {
+            // 解約済み(CancellationService::finalizeTermination)。お別れメッセージは解約確定時に
+            // 送信済みのため、以降は課金対象外のClaude呼び出しを避けて何も返さない
+            return;
+        }
 
         // ①.5 リスク検知(キーワードマッチングのみ、Claude不要)を前倒しして判定しておく。
         // 即レスすべきかどうかの最終判定(⑥.5)でも使うほか、ここで検知できていれば
@@ -492,8 +497,8 @@ class ConversationHandler
         $replyToken = $event['replyToken'];
 
         $user = $this->userRepo->findByLineUserId($lineUserId);
-        if ($user === null) {
-            return; // 未連携の送信元からの位置情報は扱わない(招待コード連携はテキストメッセージのみ対応)
+        if ($user === null || $user['status'] === 'terminated') {
+            return; // 未連携、または解約済みの送信元からの位置情報は扱わない(招待コード連携はテキストメッセージのみ対応)
         }
 
         $latitude = (float) $message['latitude'];
@@ -536,8 +541,8 @@ class ConversationHandler
         $replyToken = $event['replyToken'];
 
         $user = $this->userRepo->findByLineUserId($lineUserId);
-        if ($user === null) {
-            return; // 未連携の送信元からの画像は扱わない(招待コード連携はテキストメッセージのみ対応)
+        if ($user === null || $user['status'] === 'terminated') {
+            return; // 未連携、または解約済みの送信元からの画像は扱わない(招待コード連携はテキストメッセージのみ対応)
         }
 
         // 重複配信ガードを最初に行う(line_message_idのUNIQUE制約)。これを最初に済ませておくことで、
@@ -617,8 +622,8 @@ class ConversationHandler
         $fileSize = (int) ($event['message']['fileSize'] ?? 0);
 
         $user = $this->userRepo->findByLineUserId($lineUserId);
-        if ($user === null) {
-            return; // 未連携の送信元からのファイルは扱わない
+        if ($user === null || $user['status'] === 'terminated') {
+            return; // 未連携、または解約済みの送信元からのファイルは扱わない
         }
 
         $placeholderContent = $fileName !== '' ? "(ファイルを送りました: {$fileName})" : '(ファイルを送りました)';

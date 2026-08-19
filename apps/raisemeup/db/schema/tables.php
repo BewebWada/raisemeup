@@ -221,6 +221,7 @@ return [
         status                  ENUM('trial', 'active', 'trial_expired', 'past_due', 'cancelled', 'abandoned') NOT NULL DEFAULT 'trial',
         trial_ends_at           DATETIME NOT NULL,
         current_period_end      DATETIME DEFAULT NULL COMMENT '課金開始後の次回更新日(決済連携導入後に使用)',
+        cancel_at               DATETIME DEFAULT NULL COMMENT '期間終了時解約の予定日時。予約中のみ設定される',
         payment_provider        VARCHAR(30) DEFAULT NULL COMMENT '将来Stripe等を導入した際のプロバイダ名。未導入の間は常にNULL',
         payment_customer_ref    VARCHAR(255) DEFAULT NULL COMMENT '決済プロバイダ側の顧客/契約ID。未導入の間は常にNULL',
         created_at              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -8,6 +8,9 @@ require_once __DIR__ . '/../src/RiskEventRepository.php';
 require_once __DIR__ . '/../src/FamilyThemeRepository.php';
 require_once __DIR__ . '/../src/DocumentTextRepository.php';
 require_once __DIR__ . '/../src/MedicationLogRepository.php';
+require_once __DIR__ . '/../src/SubscriptionRepository.php';
+require_once __DIR__ . '/../src/StripeClient.php';
+require_once __DIR__ . '/../src/CancellationService.php';
 require_once __DIR__ . '/../src/LineLoginClient.php';
 require_once __DIR__ . '/../src/LineClient.php';
 require_once __DIR__ . '/../src/FriendConfirmationService.php';
@@ -84,6 +87,8 @@ $savedFamily = false;
 $savedUserId = 0;
 $themeSavedUserId = 0;
 $friendCheckedUserId = 0;
+$cancelledUserId = 0;
+$familyCancelledAll = false;
 // タブ切り替え(CSSのみ)後の再表示で、保存/追加した内容が見えているタブをそのまま維持するための着地先
 $activeTab = 'family';
 
@@ -240,6 +245,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         }
+    } elseif ($action === 'cancel_user') {
+        $cancelUserId = (int) ($_POST['user_id'] ?? 0);
+        $activeTab = 'user-' . $cancelUserId;
+
+        if (!in_array($cancelUserId, $ownedUserIds, true)) {
+            $errors[] = '不正な操作です。';
+        } else {
+            try {
+                $cancellationService = new CancellationService(
+                    $pdo,
+                    new StripeClient(Config::get('STRIPE_SECRET_KEY', '')),
+                    new SubscriptionRepository($pdo),
+                    $userRepo,
+                    $familyRepo,
+                    new LineClient(Config::get('LINE_CHANNEL_SECRET'), Config::get('LINE_CHANNEL_ACCESS_TOKEN'))
+                );
+                $cancellationService->requestUserCancellation($cancelUserId, (int) $family['id']);
+                $cancelledUserId = $cancelUserId;
+            } catch (Throwable $e) {
+                error_log('mypage user cancellation failed: ' . $e->getMessage());
+                $errors[] = '解約処理に失敗しました。お手数ですが時間をおいて再度お試しいただくか、support@tayori-net.jpまでご連絡ください。';
+            }
+        }
+    } elseif ($action === 'cancel_family_all') {
+        $activeTab = 'family';
+
+        try {
+            $cancellationService = new CancellationService(
+                $pdo,
+                new StripeClient(Config::get('STRIPE_SECRET_KEY', '')),
+                new SubscriptionRepository($pdo),
+                $userRepo,
+                $familyRepo,
+                new LineClient(Config::get('LINE_CHANNEL_SECRET'), Config::get('LINE_CHANNEL_ACCESS_TOKEN'))
+            );
+            foreach ($ownedUserIds as $ownedUserId) {
+                $cancellationService->requestUserCancellation($ownedUserId, (int) $family['id']);
+            }
+            $familyCancelledAll = true;
+        } catch (Throwable $e) {
+            error_log('mypage family cancellation failed: ' . $e->getMessage());
+            $errors[] = '解約処理に失敗しました。お手数ですが時間をおいて再度お試しいただくか、support@tayori-net.jpまでご連絡ください。';
+        }
     }
 }
 
@@ -268,7 +316,7 @@ $familyAddFriendUrl = Config::get('LINE_FAMILY_ADD_FRIEND_URL', '');
 $panels = [];
 foreach ($linkedUsers as $u) {
     $subStmt = $pdo->prepare(
-        'SELECT s.status, s.trial_ends_at, s.current_period_end, s.payment_customer_ref,
+        'SELECT s.status, s.trial_ends_at, s.current_period_end, s.payment_customer_ref, s.cancel_at,
                 p.code AS plan_code, p.name AS plan_name, p.price_yen
          FROM subscriptions s JOIN plans p ON p.id = s.plan_id
          WHERE s.user_id = ? ORDER BY s.id DESC LIMIT 1'
@@ -318,7 +366,7 @@ foreach ($panels as $panel) {
     }
 }
 
-renderMypage($family, $panels, $errors, $savedFamily, $savedUserId, $themeSavedUserId, $friendCheckedUserId, $activeTab, $familyAddFriendUrl, $familyCardMissing);
+renderMypage($family, $panels, $errors, $savedFamily, $savedUserId, $themeSavedUserId, $friendCheckedUserId, $cancelledUserId, $familyCancelledAll, $activeTab, $familyAddFriendUrl, $familyCardMissing);
 
 function renderLoginScreen(string $loginError): void
 {
@@ -349,7 +397,7 @@ function renderLoginScreen(string $loginError): void
 /**
  * @param array<int, array{user: array, subscription: ?array, summaries: array, riskEvents: array, todayTalkCount: int, themes: array}> $panels
  */
-function renderMypage(array $family, array $panels, array $errors, bool $savedFamily, int $savedUserId, int $themeSavedUserId, int $friendCheckedUserId, string $activeTab, string $familyAddFriendUrl, bool $familyCardMissing): void
+function renderMypage(array $family, array $panels, array $errors, bool $savedFamily, int $savedUserId, int $themeSavedUserId, int $friendCheckedUserId, int $cancelledUserId, bool $familyCancelledAll, string $activeTab, string $familyAddFriendUrl, bool $familyCardMissing): void
 {
     Layout::renderHeader('mypage', 'マイページ');
 
@@ -420,6 +468,13 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
   .theme-delete-form { margin:0; }
   .theme-delete-btn { margin:0; padding:6px 14px; font-size:0.8rem; background:#eee; color:#555; }
   .theme-delete-btn:hover { background:#ddd; }
+  .cancel-btn { background:#a12a1f; }
+  .cancel-btn:hover { background:#7d1f17; }
+  .cancel-confirm-btn { margin-top:0; background:#a12a1f; }
+  .cancel-confirm-btn:hover { background:#7d1f17; }
+  .cancel-dismiss-btn { margin-top:0; background:#eee; color:#555; }
+  .cancel-dismiss-btn:hover { background:#ddd; }
+  .cancel-schedule-notice { color:#a12a1f; font-weight:bold; margin-top:8px; }
   .doc-detail-btn { display:block; justify-content:flex-start; margin:0; padding:0; background:none; border:none; color:var(--text); font:inherit; text-align:left; text-decoration:underline; text-underline-offset:2px; cursor:pointer; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .doc-detail-btn:hover { color:var(--brand-dark); background:none; }
   dialog.doc-dialog { position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); margin:0; max-width:520px; max-height:80vh; width:90vw; overflow-y:auto; border:none; border-radius:var(--radius-lg); padding:24px; box-shadow:0 8px 32px rgba(0,0,0,0.2); }
@@ -492,12 +547,12 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
 
 <div class="mp-panels">
   <div class="mp-panel" id="mp-panel-0">
-    <?php renderFamilyPanel($family, $savedFamily, $familyAddFriendUrl, $familyCardMissing); ?>
+    <?php renderFamilyPanel($family, $savedFamily, $familyAddFriendUrl, $familyCardMissing, $familyCancelledAll, !empty($panels)); ?>
   </div>
 
   <?php foreach ($panels as $i => $panel): ?>
     <div class="mp-panel" id="mp-panel-<?= $i + 1 ?>">
-      <?php renderUserPanel($panel, $family, $savedUserId, $themeSavedUserId, $friendCheckedUserId); ?>
+      <?php renderUserPanel($panel, $family, $savedUserId, $themeSavedUserId, $friendCheckedUserId, $cancelledUserId); ?>
     </div>
   <?php endforeach; ?>
 </div>
@@ -540,13 +595,16 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
     Layout::renderFooter();
 }
 
-function renderFamilyPanel(array $family, bool $savedFamily, string $familyAddFriendUrl, bool $cardMissing): void
+function renderFamilyPanel(array $family, bool $savedFamily, string $familyAddFriendUrl, bool $cardMissing, bool $familyCancelledAll, bool $hasUsers): void
 {
     $familyFriendConfirmed = $family['line_user_id'] !== null && $family['friend_confirmed_at'] !== null;
     $familyFriendBroken = $family['line_user_id'] !== null && $family['friend_confirmed_at'] === null;
     ?>
   <?php if ($savedFamily): ?>
     <div class="notice">登録情報を更新しました。</div>
+  <?php endif; ?>
+  <?php if ($familyCancelledAll): ?>
+    <div class="notice">解約手続きを受け付けました。各ご利用者様は、それぞれの現在のお支払い期間の終了をもってご利用終了となります。</div>
   <?php endif; ?>
 
   <div class="card">
@@ -613,15 +671,37 @@ function renderFamilyPanel(array $family, bool $savedFamily, string $familyAddFr
     <a class="mp-btn" href="/mypage_add_user.php"><?= Layout::icon('heart') ?> 利用者を追加する</a>
     <p class="empty-hint" style="margin-top:10px;">もうお一方のご利用者様を、同じご家族アカウントに追加できます。</p>
   </div>
+
+  <?php if ($hasUsers): ?>
+  <div class="card">
+    <h2><?= Layout::icon('close') ?> 解約(退会)</h2>
+    <p class="empty-hint">ご登録の全利用者様のご契約をまとめて解約します。個別の利用者様のみを解約したい場合は、それぞれの利用者様のタブから解約してください。</p>
+    <button type="button" class="mp-btn cancel-btn" onclick="document.getElementById('cancel-family-dialog').showModal()"><?= Layout::icon('close') ?> すべて解約する</button>
+    <dialog class="doc-dialog" id="cancel-family-dialog">
+      <h3>本当にすべて解約しますか?</h3>
+      <p style="line-height:1.7;">ご登録の全利用者様について、それぞれの現在のお支払い期間の終了をもってご利用が終了します。期間終了まではそのままご利用いただけます。この操作は取り消せません。</p>
+      <form method="post" action="/mypage/">
+        <input type="hidden" name="csrf_token" value="<?= h($_SESSION['mypage_csrf_token']) ?>">
+        <input type="hidden" name="action" value="cancel_family_all">
+        <div style="display:flex; gap:10px; margin-top:20px;">
+          <button type="submit" class="cancel-confirm-btn">解約する</button>
+          <button type="button" onclick="document.getElementById('cancel-family-dialog').close()" class="cancel-dismiss-btn">やめる</button>
+        </div>
+      </form>
+    </dialog>
+  </div>
+  <?php endif; ?>
     <?php
 }
 
-function renderUserPanel(array $panel, array $family, int $savedUserId, int $themeSavedUserId, int $friendCheckedUserId): void
+function renderUserPanel(array $panel, array $family, int $savedUserId, int $themeSavedUserId, int $friendCheckedUserId, int $cancelledUserId): void
 {
     $u = $panel['user'];
     $sub = $panel['subscription'];
     $userId = (int) $u['id'];
     $riskPlan = in_array($sub['plan_code'] ?? null, RISK_REPORT_PLAN_CODES, true);
+    $userName = userFamilyFacingName($u) ?: 'ご利用者様';
+    $canCancel = $sub !== null && !in_array($sub['status'], ['cancelled', 'abandoned'], true) && empty($sub['cancel_at']);
     ?>
   <?php if ($savedUserId === $userId): ?>
     <div class="notice">登録情報を更新しました。</div>
@@ -631,6 +711,9 @@ function renderUserPanel(array $panel, array $family, int $savedUserId, int $the
   <?php endif; ?>
   <?php if ($friendCheckedUserId === $userId): ?>
     <div class="notice">友だち追加を確認しました。</div>
+  <?php endif; ?>
+  <?php if ($cancelledUserId === $userId): ?>
+    <div class="notice">解約手続きを受け付けました。現在のお支払い期間の終了をもってご利用終了となります。</div>
   <?php endif; ?>
 
   <div class="card">
@@ -649,6 +732,24 @@ function renderUserPanel(array $panel, array $family, int $savedUserId, int $the
           <dd><?= h((new DateTime($sub['current_period_end']))->format('Y年n月j日')) ?></dd>
         <?php endif; ?>
       </dl>
+      <?php if (!empty($sub['cancel_at'])): ?>
+        <p class="cancel-schedule-notice"><?= h((new DateTime($sub['cancel_at']))->format('Y年n月j日')) ?>をもって解約予定です。</p>
+      <?php elseif ($canCancel): ?>
+        <button type="button" class="mp-btn cancel-btn" onclick="document.getElementById('cancel-user-dialog-<?= $userId ?>').showModal()"><?= Layout::icon('close') ?> この利用者様を解約する</button>
+        <dialog class="doc-dialog" id="cancel-user-dialog-<?= $userId ?>">
+          <h3>本当に解約しますか?</h3>
+          <p style="line-height:1.7;"><?= h($userName) ?>様について、現在のお支払い期間の終了をもってご利用が終了します。期間終了まではそのままご利用いただけます。この操作は取り消せません。</p>
+          <form method="post" action="/mypage/">
+            <input type="hidden" name="csrf_token" value="<?= h($_SESSION['mypage_csrf_token']) ?>">
+            <input type="hidden" name="action" value="cancel_user">
+            <input type="hidden" name="user_id" value="<?= $userId ?>">
+            <div style="display:flex; gap:10px; margin-top:20px;">
+              <button type="submit" class="cancel-confirm-btn">解約する</button>
+              <button type="button" onclick="document.getElementById('cancel-user-dialog-<?= $userId ?>').close()" class="cancel-dismiss-btn">やめる</button>
+            </div>
+          </form>
+        </dialog>
+      <?php endif; ?>
     <?php else: ?>
       <p class="empty-hint">ご契約情報が見つかりませんでした。</p>
     <?php endif; ?>

@@ -72,6 +72,13 @@ class StripeClient
         return $this->request('DELETE', '/subscriptions/' . $subscriptionId);
     }
 
+    // 期間終了時に解約を予約する(即時停止ではなく、支払い済み期間の終わりまで利用を継続させる)。
+    // 実際の利用停止・DB反映はStripeが期間終了時に送るcustomer.subscription.deletedのWebhookで行う
+    public function cancelSubscriptionAtPeriodEnd(string $subscriptionId): array
+    {
+        return $this->request('POST', '/subscriptions/' . $subscriptionId, ['cancel_at_period_end' => true]);
+    }
+
     // Stripeがホストするお支払い管理画面(カード変更・請求書履歴・解約)のセッションを発行する。
     // 事前にStripeダッシュボード側で「Customer portal」の設定(何を許可するか)が必要
     // $flowType: 'payment_method_update' を渡すと、ポータルのトップ画面を経由せず

@@ -132,6 +132,14 @@ class UserRepository
         )->execute([$id]);
     }
 
+    // 解約により利用者本体を終了させる(CancellationService::finalizeTermination経由で呼ぶ)。
+    // send_proactive_messages.php等の通知バッチはstatus='active'のみを対象にしているため、
+    // これだけで以降の声かけ・要約生成等が自然に止まる。会話応答自体の停止はConversationHandler側で判定する
+    public function terminate(int $id): void
+    {
+        $this->pdo->prepare("UPDATE users SET status = 'terminated' WHERE id = ?")->execute([$id]);
+    }
+
     // 会話中に「夜9時以降は話しかけないで」等の申告があった場合に、システムからの声かけ(send_proactive_messages.php)を
     // 控える時間帯を保存する。両方nullを渡すと解除(いつでも声かけしてよい状態に戻す)になる
     public function updateQuietHours(int $id, ?string $start, ?string $end): void

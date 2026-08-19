@@ -6,6 +6,9 @@ require_once __DIR__ . '/../src/Config.php';
 require_once __DIR__ . '/../src/LineClient.php';
 require_once __DIR__ . '/../src/StripeClient.php';
 require_once __DIR__ . '/../src/SubscriptionRepository.php';
+require_once __DIR__ . '/../src/UserRepository.php';
+require_once __DIR__ . '/../src/FamilyAccountRepository.php';
+require_once __DIR__ . '/../src/CancellationService.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Database.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
 
@@ -27,8 +30,13 @@ try {
 $dbConfig = require __DIR__ . '/../db/config.php';
 $pdo = Database::connect($dbConfig);
 $subscriptionRepo = new SubscriptionRepository($pdo);
+$userRepo = new UserRepository($pdo);
+$familyRepo = new FamilyAccountRepository($pdo);
 // 決済失敗の通知は「TAYORIサポート」チャネル(利用者本人の会話用アカウントとは別)から送る
 $lineClient = new LineClient(Config::get('LINE_FAMILY_CHANNEL_SECRET'), Config::get('LINE_FAMILY_CHANNEL_ACCESS_TOKEN'));
+// 解約時のお別れメッセージは、利用者本人との会話用チャネルから送る
+$userLineClient = new LineClient(Config::get('LINE_CHANNEL_SECRET'), Config::get('LINE_CHANNEL_ACCESS_TOKEN'));
+$cancellationService = new CancellationService($pdo, $stripe, $subscriptionRepo, $userRepo, $familyRepo, $userLineClient);
 
 $type = $event['type'] ?? '';
 $object = $event['data']['object'] ?? [];
@@ -53,8 +61,11 @@ try {
 
         case 'customer.subscription.deleted':
             $sub = $subscriptionRepo->findByStripeSubscriptionId((string) ($object['id'] ?? ''));
-            if ($sub !== null) {
+            // 放置(未連携タイムアウト)による自動キャンセル(check_subscriptions.php)は既に
+            // markAbandonedで処理済みのため、ここでは対象外にする(上書きしない)
+            if ($sub !== null && $sub['status'] !== 'abandoned') {
                 $subscriptionRepo->markCancelled((int) $sub['id']);
+                $cancellationService->finalizeTermination((int) $sub['user_id'], (int) $sub['family_account_id']);
             }
             break;
 
@@ -145,6 +156,15 @@ function handleSubscriptionUpdated(SubscriptionRepository $subscriptionRepo, arr
     if ($sub === null) {
         return;
     }
+
+    // マイページの解約ボタンだけでなく、Stripeの顧客ポータルから直接解約(予約)された場合も
+    // 表示上の解約予定日を同期しておく。cancel_at_period_endが外れた(予約取消)場合はクリアする
+    if (!empty($subscription['cancel_at_period_end']) && isset($subscription['cancel_at'])) {
+        $subscriptionRepo->scheduleCancellation((int) $sub['id'], unixToJst((int) $subscription['cancel_at']));
+    } elseif (empty($subscription['cancel_at_period_end']) && $sub['cancel_at'] !== null) {
+        $subscriptionRepo->clearScheduledCancellation((int) $sub['id']);
+    }
+
     $status = mapStripeSubscriptionStatus((string) ($subscription['status'] ?? ''));
     if ($status === null) {
         return;

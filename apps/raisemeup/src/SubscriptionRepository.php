@@ -80,4 +80,29 @@ class SubscriptionRepository
     {
         $this->pdo->prepare("UPDATE subscriptions SET status = 'abandoned' WHERE id = ?")->execute([$id]);
     }
+
+    // 利用者の現在有効な契約(解約・放置済みでないもの)を1件返す。CancellationServiceの解約操作の起点に使う
+    public function findActiveForUser(int $userId): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM subscriptions WHERE user_id = ? AND status NOT IN ('cancelled', 'abandoned') ORDER BY id DESC LIMIT 1"
+        );
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
+    }
+
+    // 期間終了時解約(cancel_at_period_end)の予定日時を保存する。statusはWebhook到達まで変えない
+    // (それまでは引き続き利用可能なため)
+    public function scheduleCancellation(int $id, string $cancelAt): void
+    {
+        $this->pdo->prepare('UPDATE subscriptions SET cancel_at = ? WHERE id = ?')->execute([$cancelAt, $id]);
+    }
+
+    // Stripe側で解約予約が取り消された(customer.subscription.updatedでcancel_at_period_end=falseに
+    // 戻った)場合に、マイページ表示との整合性を保つために呼ぶ
+    public function clearScheduledCancellation(int $id): void
+    {
+        $this->pdo->prepare('UPDATE subscriptions SET cancel_at = NULL WHERE id = ?')->execute([$id]);
+    }
 }
