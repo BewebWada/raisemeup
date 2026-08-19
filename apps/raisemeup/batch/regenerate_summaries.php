@@ -43,6 +43,10 @@ echo "[OK] schedules with no date, marked cancelled after 90 days: {$staleCount}
 $missedMedicationCount = $medicationLogRepo->markStalePendingAsMissed();
 echo "[OK] medication logs marked missed: {$missedMedicationCount}\n";
 
+// --- 0d. マイページでの表示期間(RETENTION_DAYS)を過ぎた服薬記録を削除する ---
+$deletedMedicationCount = $medicationLogRepo->deleteOlderThan(MedicationLogRepository::RETENTION_DAYS);
+echo "[OK] medication logs deleted (older than " . MedicationLogRepository::RETENTION_DAYS . " days): {$deletedMedicationCount}\n";
+
 function regenerateScheduleSummary(PDO $pdo, ClaudeClient $claude, SummaryRepository $summaryRepo, int $userId): void
 {
     $scheduleRepo = new ScheduleRepository($pdo);

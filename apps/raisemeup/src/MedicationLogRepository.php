@@ -1,6 +1,10 @@
 <?php
 class MedicationLogRepository
 {
+    // マイページ「服薬状況」で遡って表示する日数、かつ記録自体を保持する日数(regenerate_summaries.phpの
+    // deleteOlderThanと表示側getRecentForUserの両方で使い、両者がずれないようにする)
+    public const RETENTION_DAYS = 7;
+
     private PDO $pdo;
 
     public function __construct(PDO $pdo)
@@ -66,7 +70,7 @@ class MedicationLogRepository
      * マイページ「服薬状況」表示用。直近$days日分の記録を新しい順で返す(タイトル・服薬時刻はschedulesから)。
      * @return array<int, array{title:string, scheduled_time:string, log_date:string, status:string}>
      */
-    public function getRecentForUser(int $userId, int $days = 14): array
+    public function getRecentForUser(int $userId, int $days = self::RETENTION_DAYS): array
     {
         $stmt = $this->pdo->prepare(
             "SELECT m.log_date, m.status, s.title, TIME(s.scheduled_at) AS scheduled_time
@@ -85,5 +89,16 @@ class MedicationLogRepository
         return $this->pdo->exec(
             "UPDATE medication_logs SET status = 'missed' WHERE status = 'pending' AND log_date < CURDATE()"
         );
+    }
+
+    // マイページでの表示期間(直近$days日)を過ぎた記録を削除する(regenerate_summaries.php用)。
+    // 服薬記録は他の要約等の元データにはなっていないため、表示に使わなくなった分は保持し続ける必要がない
+    public function deleteOlderThan(int $days): int
+    {
+        $stmt = $this->pdo->prepare(
+            "DELETE FROM medication_logs WHERE log_date < DATE_SUB(CURDATE(), INTERVAL ? DAY)"
+        );
+        $stmt->execute([$days]);
+        return $stmt->rowCount();
     }
 }

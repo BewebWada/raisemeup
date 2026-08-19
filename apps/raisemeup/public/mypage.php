@@ -56,10 +56,6 @@ const SUMMARY_TYPE_LABELS = [
 
 const RISK_LEVEL_LABELS = ['low' => '低', 'medium' => '中', 'high' => '高'];
 
-// 「服薬状況」カードで遡って表示する日数。send_proactive_messages.phpのリマインド・
-// regenerate_summaries.phpのmissed確定と合わせて、直近の傾向が分かれば十分なため2週間分に絞る
-const MEDICATION_LOG_DISPLAY_DAYS = 14;
-
 // 安心レポートでリスクアラート(検知結果の表示・通知)を出すプラン。ConversationHandlerの
 // RISK_NOTIFY_PLAN_CODESと揃えている(premium_medicalはfamily_watchの上位互換のため含む)。
 // 対象外(寄り添いベーシック)は「本日のトーク回数」程度の軽いサマリーのみ表示する
@@ -296,7 +292,7 @@ foreach ($linkedUsers as $u) {
         'todayTalkCount' => (int) $talkCountStmt->fetchColumn(),
         'themes' => $familyThemeRepo->getActiveForUser((int) $u['id']),
         'documentTexts' => $documentTextRepo->getActiveForUser((int) $u['id']),
-        'medicationLogs' => $medicationLogRepo->getRecentForUser((int) $u['id'], MEDICATION_LOG_DISPLAY_DAYS),
+        'medicationLogs' => $medicationLogRepo->getRecentForUser((int) $u['id']),
         'userLineLinked' => $userLineLinked,
         'userFriendConfirmed' => $u['status'] !== 'pending' && $u['friend_confirmed_at'] !== null,
         'userLoginUrl' => $userLoginUrl,
@@ -737,9 +733,9 @@ function renderUserPanel(array $panel, array $family, int $savedUserId, int $the
     <?php else: ?>
       <?php $missedLogs = array_values(array_filter($panel['medicationLogs'], fn($l) => $l['status'] === 'missed')); ?>
       <?php if (empty($missedLogs)): ?>
-        <p class="empty-hint">直近<?= MEDICATION_LOG_DISPLAY_DAYS ?>日間、飲み忘れは確認されていません。</p>
+        <p class="empty-hint">直近<?= MedicationLogRepository::RETENTION_DAYS ?>日間、飲み忘れは確認されていません。</p>
       <?php else: ?>
-        <p class="empty-hint" style="color:#a12a1f; margin-bottom:10px;">直近<?= MEDICATION_LOG_DISPLAY_DAYS ?>日間で、確認が取れなかった服薬が<?= count($missedLogs) ?>件あります。</p>
+        <p class="empty-hint" style="color:#a12a1f; margin-bottom:10px;">直近<?= MedicationLogRepository::RETENTION_DAYS ?>日間で、確認が取れなかった服薬が<?= count($missedLogs) ?>件あります。</p>
         <?php foreach ($missedLogs as $log): ?>
           <div class="risk-item">
             <span class="level-medium">飲み忘れの可能性</span>
