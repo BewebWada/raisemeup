@@ -468,13 +468,13 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
   .theme-delete-form { margin:0; }
   .theme-delete-btn { margin:0; padding:6px 14px; font-size:0.8rem; background:#eee; color:#555; }
   .theme-delete-btn:hover { background:#ddd; }
-  .cancel-btn { background:#a12a1f; }
-  .cancel-btn:hover { background:#7d1f17; }
-  .cancel-confirm-btn { margin-top:0; background:#a12a1f; }
+  .cancel-trigger-btn { display:inline-block; margin-top:14px; padding:7px 16px; font-size:0.82rem; font-weight:normal; background:none; border:1px solid #d9a6a0; color:#a12a1f; border-radius:var(--radius-pill); cursor:pointer; }
+  .cancel-trigger-btn:hover { background:#fdecea; }
+  .cancel-confirm-btn { margin-top:0; padding:10px 20px; font-size:0.9rem; background:#a12a1f; }
   .cancel-confirm-btn:hover { background:#7d1f17; }
-  .cancel-dismiss-btn { margin-top:0; background:#eee; color:#555; }
+  .cancel-dismiss-btn { margin-top:0; padding:10px 20px; font-size:0.9rem; background:#eee; color:#555; }
   .cancel-dismiss-btn:hover { background:#ddd; }
-  .cancel-schedule-notice { color:#a12a1f; font-weight:bold; margin-top:8px; }
+  .cancel-schedule-notice { color:#a12a1f; font-size:0.88rem; margin-top:8px; }
   .doc-detail-btn { display:block; justify-content:flex-start; margin:0; padding:0; background:none; border:none; color:var(--text); font:inherit; text-align:left; text-decoration:underline; text-underline-offset:2px; cursor:pointer; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .doc-detail-btn:hover { color:var(--brand-dark); background:none; }
   dialog.doc-dialog { position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); margin:0; max-width:520px; max-height:80vh; width:90vw; overflow-y:auto; border:none; border-radius:var(--radius-lg); padding:24px; box-shadow:0 8px 32px rgba(0,0,0,0.2); }
@@ -675,11 +675,18 @@ function renderFamilyPanel(array $family, bool $savedFamily, string $familyAddFr
   <?php if ($hasUsers): ?>
   <div class="card">
     <h2><?= Layout::icon('close') ?> 解約(退会)</h2>
-    <p class="empty-hint">ご登録の全利用者様のご契約をまとめて解約します。個別の利用者様のみを解約したい場合は、それぞれの利用者様のタブから解約してください。</p>
-    <button type="button" class="mp-btn cancel-btn" onclick="document.getElementById('cancel-family-dialog').showModal()"><?= Layout::icon('close') ?> すべて解約する</button>
+    <p class="empty-hint">
+      ご登録の全利用者様のご契約をまとめて解約します。個別の利用者様お一人だけを解約したい場合は、それぞれの利用者様のタブの一番下から解約してください。<br>
+      解約されても、各利用者様は現在のお支払い期間の終了日まではこれまで通りご利用いただけます。期間終了日に、TAYORIからそれぞれのご本人へLINEで一言お別れのご挨拶をお送りしたうえで、ご利用を終了いたします。
+      いただいたお支払いの日割り返金は行っておりません。
+    </p>
+    <button type="button" class="cancel-trigger-btn" onclick="document.getElementById('cancel-family-dialog').showModal()">すべて解約する</button>
     <dialog class="doc-dialog" id="cancel-family-dialog">
       <h3>本当にすべて解約しますか?</h3>
-      <p style="line-height:1.7;">ご登録の全利用者様について、それぞれの現在のお支払い期間の終了をもってご利用が終了します。期間終了まではそのままご利用いただけます。この操作は取り消せません。</p>
+      <p style="line-height:1.7;">
+        ご登録の全利用者様のご利用を解約します。それぞれ現在のお支払い期間の終了日まではそのままご利用いただけ、期間終了日にTAYORIからご本人へお別れのご挨拶をお送りしたうえでご利用が終了します。
+        いただいたお支払いの日割り返金は行われません。この操作は取り消せませんので、あらかじめご了承のうえお進みください。
+      </p>
       <form method="post" action="/mypage/">
         <input type="hidden" name="csrf_token" value="<?= h($_SESSION['mypage_csrf_token']) ?>">
         <input type="hidden" name="action" value="cancel_family_all">
@@ -734,21 +741,6 @@ function renderUserPanel(array $panel, array $family, int $savedUserId, int $the
       </dl>
       <?php if (!empty($sub['cancel_at'])): ?>
         <p class="cancel-schedule-notice"><?= h((new DateTime($sub['cancel_at']))->format('Y年n月j日')) ?>をもって解約予定です。</p>
-      <?php elseif ($canCancel): ?>
-        <button type="button" class="mp-btn cancel-btn" onclick="document.getElementById('cancel-user-dialog-<?= $userId ?>').showModal()"><?= Layout::icon('close') ?> この利用者様を解約する</button>
-        <dialog class="doc-dialog" id="cancel-user-dialog-<?= $userId ?>">
-          <h3>本当に解約しますか?</h3>
-          <p style="line-height:1.7;"><?= h($userName) ?>様について、現在のお支払い期間の終了をもってご利用が終了します。期間終了まではそのままご利用いただけます。この操作は取り消せません。</p>
-          <form method="post" action="/mypage/">
-            <input type="hidden" name="csrf_token" value="<?= h($_SESSION['mypage_csrf_token']) ?>">
-            <input type="hidden" name="action" value="cancel_user">
-            <input type="hidden" name="user_id" value="<?= $userId ?>">
-            <div style="display:flex; gap:10px; margin-top:20px;">
-              <button type="submit" class="cancel-confirm-btn">解約する</button>
-              <button type="button" onclick="document.getElementById('cancel-user-dialog-<?= $userId ?>').close()" class="cancel-dismiss-btn">やめる</button>
-            </div>
-          </form>
-        </dialog>
       <?php endif; ?>
     <?php else: ?>
       <p class="empty-hint">ご契約情報が見つかりませんでした。</p>
@@ -978,5 +970,32 @@ function renderUserPanel(array $panel, array $family, int $savedUserId, int $the
       <button type="submit">この内容で保存する</button>
     </form>
   </div>
+
+  <?php if ($canCancel): ?>
+  <div class="card">
+    <h2><?= Layout::icon('close') ?> 解約</h2>
+    <p class="empty-hint">
+      解約されても、現在のお支払い期間の終了日まではこれまで通りご利用いただけます。期間終了日に、TAYORIから<?= h($userName) ?>様へLINEで一言お別れのご挨拶をお送りしたうえで、ご利用を終了いたします。
+      いただいたお支払いの日割り返金は行っておりません。
+    </p>
+    <button type="button" class="cancel-trigger-btn" onclick="document.getElementById('cancel-user-dialog-<?= $userId ?>').showModal()">この利用者様を解約する</button>
+    <dialog class="doc-dialog" id="cancel-user-dialog-<?= $userId ?>">
+      <h3>本当に解約しますか?</h3>
+      <p style="line-height:1.7;">
+        <?= h($userName) ?>様のご利用を解約します。現在のお支払い期間の終了日まではそのままご利用いただけ、期間終了日にTAYORIからご本人へお別れのご挨拶をお送りしたうえでご利用が終了します。
+        いただいたお支払いの日割り返金は行われません。この操作は取り消せませんので、あらかじめご了承のうえお進みください。
+      </p>
+      <form method="post" action="/mypage/">
+        <input type="hidden" name="csrf_token" value="<?= h($_SESSION['mypage_csrf_token']) ?>">
+        <input type="hidden" name="action" value="cancel_user">
+        <input type="hidden" name="user_id" value="<?= $userId ?>">
+        <div style="display:flex; gap:10px; margin-top:20px;">
+          <button type="submit" class="cancel-confirm-btn">解約する</button>
+          <button type="button" onclick="document.getElementById('cancel-user-dialog-<?= $userId ?>').close()" class="cancel-dismiss-btn">やめる</button>
+        </div>
+      </form>
+    </dialog>
+  </div>
+  <?php endif; ?>
     <?php
 }
