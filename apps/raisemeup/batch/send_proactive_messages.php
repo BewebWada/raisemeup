@@ -519,10 +519,11 @@ function checkNoResponseAndNotify(
  * 深夜早朝ガード(QUIET_HOURS)の対象外(健康に関わるため、他の声かけと違って夜間でも止めない。
  * 元々深夜の時間帯に服薬予定を入れる利用者はまれだが、念のため対象外にはしていない)
  */
-function sendMedicationReminders(PDO $pdo, LineClient $lineClient, MedicationLogRepository $medicationLogRepo, DateTime $now): int
+function sendMedicationReminders(PDO $pdo, LineClient $lineClient, ClaudeClient $claudeClient, MedicationLogRepository $medicationLogRepo, DateTime $now): int
 {
     $stmt = $pdo->prepare(
-        "SELECT s.id AS schedule_id, s.title, s.user_id, u.line_user_id
+        "SELECT s.id AS schedule_id, s.title, s.user_id, u.line_user_id,
+                u.display_name, u.companion_name, u.gender
          FROM schedules s
          JOIN users u ON u.id = s.user_id
          WHERE s.is_medication = 1 AND s.status = 'upcoming'
@@ -545,15 +546,26 @@ function sendMedicationReminders(PDO $pdo, LineClient $lineClient, MedicationLog
     foreach ($rows as $row) {
         $userId = (int) $row['user_id'];
         $byUser[$userId]['line_user_id'] = $row['line_user_id'];
+        $byUser[$userId]['display_name'] = $row['display_name'];
+        $byUser[$userId]['companion_name'] = $row['companion_name'];
+        $byUser[$userId]['gender'] = $row['gender'];
         $byUser[$userId]['schedules'][] = $row;
     }
 
     $sentCount = 0;
     foreach ($byUser as $userId => $data) {
         $titles = array_map(fn($s) => $s['title'], $data['schedules']);
-        $text = count($titles) === 1
-            ? "「{$titles[0]}」の時間だね。飲んだら教えてね。"
-            : '「' . implode('』『', $titles) . '』の時間だね。飲んだら教えてね。';
+        $companionName = $data['companion_name'] ?: 'たより';
+
+        // AIにその人らしい自然な言い回しで生成してもらう(「内用薬(昼食後)」のようなDB記録用の機械的な
+        // 表記をそのまま読み上げないようにするため)。失敗時のみ、内容を確実に伝えられる固定の定型文に
+        // フォールバックする(健康に関わるため、正確に伝わることを最優先する)
+        $text = $claudeClient->generateMedicationReminder($titles, $companionName, (string) $data['display_name'], $data['gender']);
+        if ($text === '') {
+            $text = count($titles) === 1
+                ? "「{$titles[0]}」の時間だね。飲んだら教えてね。"
+                : '「' . implode('』『', $titles) . '』の時間だね。飲んだら教えてね。';
+        }
 
         if ($lineClient->push($data['line_user_id'], $text)) {
             logOutbound($pdo, $userId, $text, true);
@@ -762,5 +774,5 @@ echo "[OK] urgent silence family notifications sent: {$urgentNotifiedCount}\n";
 
 // --- 5. 服薬リマインド(is_medication=trueの予定の時刻到来検知) ---
 // 健康に関わるため、1・2の深夜早朝ガードとは独立に毎回の実行でチェックする
-$medicationReminderCount = sendMedicationReminders($pdo, $lineClient, $medicationLogRepo, $now);
+$medicationReminderCount = sendMedicationReminders($pdo, $lineClient, $claudeClient, $medicationLogRepo, $now);
 echo "[OK] medication reminders sent: {$medicationReminderCount}\n";

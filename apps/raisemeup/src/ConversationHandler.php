@@ -292,6 +292,12 @@ class ConversationHandler
             $recentDocumentTexts
         );
 
+        // 空気読みステップ(situation_read)の生成品質を確認するための一時的なログ出力。
+        // 利用者には見せず、あくまで開発時のチューニング確認用
+        if (!empty($result['situation_read'])) {
+            error_log('situation_read: ' . $result['situation_read']);
+        }
+
         // ④.5 ご家族からの伝言を今回の返信で伝えられたと判定された場合、配信済みにして家族へ確認連絡を送る
         if (!empty($pendingFamilyMessages) && !empty($result['family_message_delivered'])) {
             $this->familyMessageRepo->markDelivered(array_column($pendingFamilyMessages, 'id'));

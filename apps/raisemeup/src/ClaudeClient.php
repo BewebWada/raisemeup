@@ -515,6 +515,17 @@ PROMPT;
                 return '・' . $label . ($m['content'] ?? '') . $replyPart;
             }, $recentExchanges));
 
+        // 直近何回連続で返信が無いか数えて、空気読みステップ(下記【話しかける前に、まず空気を読むこと】)の
+        // 判断材料として渡す($noReplyContextLine参照)
+        $consecutiveNoReplyCount = 0;
+        for ($i = count($recentExchanges) - 1; $i >= 0; $i--) {
+            if (empty($recentExchanges[$i]['user_reply'])) {
+                $consecutiveNoReplyCount++;
+            } else {
+                break;
+            }
+        }
+
         $topicContext = self::buildTopicCoverageContext($topicCoverage);
         // 直前に「大丈夫かな」と心配して連絡した直後は、新しい話題(自己紹介・未着手ジャンルの質問等)を
         // 無理に差し込むと「心配してたよ」から唐突に無関係な話題へ飛ぶ不自然な文になるため、
@@ -566,13 +577,21 @@ PROMPT;
             : '- 「お元気ですか」「お久しぶりです」のような、久々の連絡を前提にした定型文は避けること';
         // 直前に「しばらく返事が無くて心配になった」と伝えるメッセージを送ったものの、まだ返信をもらえていない状態。
         // それを無かったことにして通常通りの軽い雑談を始めると、心配していたはずなのに次の瞬間には
-        // 気にしていないような不自然な態度に見えてしまうため、軽く触れてから話しかけるよう上書きする
+        // 気にしていないような不自然な態度に見えてしまうため、軽く触れてから話しかけるよう上書きする。
+        // 触れ方の工夫(言い回しのバリエーション)は下記【話しかける前に、まず空気を読むこと】に委ね、
+        // ここでは状況の事実だけを伝える
         if ($hadPendingWorry) {
             $situationLine = '少し前に、しばらく返事が無くて心配になり、居場所を尋ねるメッセージを送ったものの、まだ返信をもらえていない状態です。'
-                . 'それを完全に忘れたかのような態度にはせず、「さっき連絡したんだけど大丈夫かな」のように心配していたことに軽く触れてから、'
-                . '改めて様子を尋ねる一言にしてください。ただし不安を過度に煽らず、あくまで友達として気にかけている程度の軽さに留めてください。';
+                . 'それを完全に忘れたかのような態度にはせず、少し前に連絡していたことに軽く触れてから、改めて様子を尋ねる一言にしてください。'
+                . 'ただし不安を過度に煽らず、あくまで友達として気にかけている程度の軽さに留めてください。';
             $avoidStockPhraseLine = '- 心配していたことに一切触れない、よそよそしい業務的な文面は避けること';
         }
+
+        // 返信が無い状態が続くほど、AIが同じ切り出し方を繰り返しがちなので、連続回数という事実だけを
+        // 伝える(言い回しをどう変えるかの判断自体は空気読みステップに委ねる)
+        $noReplyContextLine = $consecutiveNoReplyCount >= 2
+            ? "- 直近{$consecutiveNoReplyCount}回連続で、こちらから話しかけても返信をもらえていません。"
+            : '';
 
         $systemPrompt = <<<PROMPT
 あなたの名前は「{$companionName}」です。高齢者向け会話サービスのAIコンパニオンとして、{$userLabel}専属の話し相手を務めています。
@@ -599,12 +618,21 @@ PROMPT;
 上記はあなた自身の設定です。相手の話に合わせて「私も〜なんだよね」のように自分の話として自然に触れて
 よいですが、ここに書かれていない新しい具体的な身の上話(家族構成・職歴等)を勝手に作り出さないこと。
 
+【話しかける前に、まず空気を読むこと】
+判断材料(上記【この利用者についてこれまでに分かっていること】【自己レビューメモ】【直近で自分から
+話しかけた内容と、それへの利用者の返信】)を踏まえて、今この人にどんな一言が自然かを自分なりに感じ取って
+から書いてください。特に返信が無い状態が続いている場合は、それがこの人にとって普段通りなのか、少し
+様子が違うのかも判断材料にしてください。感じ取った内容は後述のsituation_readに一言(1文程度)でまとめて
+から、それを踏まえたmessageを書くこと。situation_readはあなたの内部メモであり、そのまま利用者に見せる
+文章ではないので、messageにコピーしないこと。
+
 【メッセージの条件】
 - 友達同士で話すようなくだけた話し言葉(タメ口。「です」「ます」は使わない)にすること
 - 冒頭の挨拶は、上記の現在時刻に即したものにすること(例: 朝は「おはよう」、昼は「こんにちは」、
   夕方以降は「こんばんは」など。深夜早朝であれば「こんな時間にごめんね」等、時間帯に配慮した言い方にする)
 - 1〜2文の短い挨拶・話しかけにすること(質問攻めにしない)
 {$avoidStockPhraseLine}
+{$noReplyContextLine}
 {$topicGuidanceLine}
 - 上記の【直近で自分から話しかけた内容と、それへの利用者の返信】のうち、利用者の返信が素っ気ない
   (一言だけ、話が広がらない等)か返信が無かった話題は、同じ話題を続けて持ち出さないこと。特に
@@ -624,7 +652,10 @@ PROMPT;
   相槌にしないこと)
 - 返信を強制するような重い内容(健康不安を煽る等)は避けること
 - LINEでのやり取りなので、気持ちに合った絵文字を1〜2個程度、自然に添えること
-- 出力はメッセージ本文のみ。前置き・カギカッコ・署名は不要
+
+【出力形式】
+必ず以下のJSON形式のみで出力してください。前置きやMarkdownのコードフェンスは不要です。
+{"situation_read": "(内部メモ)今回感じ取った空気・状況の一言まとめ", "message": "実際に送るメッセージ本文"}
 PROMPT;
 
         $data = $this->callApi([
@@ -637,7 +668,25 @@ PROMPT;
             return '';
         }
 
-        return trim((string) self::extractResponseText($data));
+        $text = trim((string) self::extractResponseText($data));
+        $parsed = $this->extractJson($text);
+        if ($parsed !== null && trim((string) ($parsed['message'] ?? '')) !== '') {
+            if (!empty($parsed['situation_read'])) {
+                error_log('situation_read(proactive): ' . $parsed['situation_read']);
+            }
+            return trim((string) $parsed['message']);
+        }
+
+        // Haiku等の軽量モデルは、指示したJSON形式を忘れて素の会話文で返すことが稀にある
+        // (generateReplyAndExtract::callAndParseと同じ挙動)。"{"を含まない自然文であれば
+        // 生成自体は成功しているので、そのままメッセージとして採用する
+        if (trim($text) !== '' && strpos($text, '{') === false) {
+            error_log('Claude API: generateProactiveMessageがJSON形式でない応答をそのまま採用: ' . substr($text, 0, 300));
+            return $text;
+        }
+
+        error_log('Claude API: generateProactiveMessageのJSONパースに失敗: ' . substr($text, 0, 500));
+        return '';
     }
 
     /**
@@ -906,6 +955,59 @@ PROMPT;
             'system' => $systemPrompt,
             'messages' => [['role' => 'user', 'content' => 'リマインドを送ってください。']],
         ], 15, 'generateScheduleReminder');
+        if ($data === null) {
+            return '';
+        }
+
+        return trim((string) self::extractResponseText($data));
+    }
+
+    /**
+     * バッチ処理(send_proactive_messages.php::sendMedicationReminders)から呼び出す、服薬リマインドの文面生成。
+     * schedules.titleは「内用薬(昼食後)」のようなDB記録用の機械的な表記になっていることが多く、
+     * これをそのまま読み上げると友達らしくない無機質な言い方になってしまうため、generateScheduleReminderと
+     * 同様に「事実(薬の名前・区別)は正確に伝えつつ、言い回しは自然な話し言葉にAIが変換する」方針にする。
+     * この経路は会話履歴・要約を渡していない(健康に関わる事務通知のため、深夜早朝ガードの対象外にしてまで
+     * 即時性を優先している)ので、感じ取れる文脈が乏しく、他の生成メソッドのような空気読みステップ
+     * (situation_read)は付けていない。失敗時は空文字を返す(呼び出し側は正確さ優先の固定文にフォールバックする想定)
+     */
+    public function generateMedicationReminder(array $titles, string $companionName, string $userDisplayName, ?string $userGender = null): string
+    {
+        $userLabel = $userDisplayName !== '' ? "{$userDisplayName}さん" : '利用者';
+        $genderLine = match ($userGender) {
+            'male' => "{$userLabel}は男性です。一般的に男性の高齢者が好む言葉遣いを、自然な範囲で参考にしてください。",
+            'female' => "{$userLabel}は女性です。一般的に女性の高齢者が好む言葉遣いを、自然な範囲で参考にしてください。",
+            default => '',
+        };
+        $titlesBlock = implode("\n", array_map(fn($t) => '・' . $t, $titles));
+
+        $systemPrompt = <<<PROMPT
+あなたの名前は「{$companionName}」です。高齢者向け会話サービスのAIコンパニオンとして、{$userLabel}専属の話し相手を務めています。
+{$genderLine}
+
+今回は{$userLabel}への返信ではなく、お薬の時間が来たことを伝えるリマインドです。
+
+【対象のお薬(正確に伝えること。複数ある場合は全て触れること)】
+{$titlesBlock}
+
+【メッセージの条件】
+- 友達同士で話すようなくだけた話し言葉(タメ口。「です」「ます」は使わない)にすること
+- 上記は「内用薬(昼食後)」のようなデータ記録用の機械的な表記なので、そのままカギカッコ付きで読み上げず、
+  「お昼のお薬」「夕方のぶん」のような自然な話し言葉に言い換えること。ただし、どの薬のことか分からなくなる
+  ほど省略しないこと(複数ある場合、名前や食前食後等の区別は保持すること)
+- 「お薬の時間だね」のように軽く声をかけ、最後に「飲んだら教えてね」のような、飲んだことを報告してほしい
+  一言を必ず含めること(このメッセージへの返信で服薬確認を記録するため)
+- 1〜2文の短さにすること
+- LINEでのやり取りなので、気持ちに合った絵文字を1個程度、自然に添えること
+- 出力はメッセージ本文のみ。前置き・カギカッコ・署名は不要
+PROMPT;
+
+        $data = $this->callApi([
+            'model' => $this->model,
+            'max_tokens' => 200,
+            'system' => $systemPrompt,
+            'messages' => [['role' => 'user', 'content' => 'リマインドを送ってください。']],
+        ], 15, 'generateMedicationReminder');
         if ($data === null) {
             return '';
         }
@@ -1343,10 +1445,19 @@ reply_textとは別に、LINEスタンプを1つだけ添えて送ることが�
 
 {$guardrails}
 
+【返信の前に、まず空気を読むこと】
+相槌のバリエーションを機械的に切り替えるのではなく、友達のように「今、この人はどんな気分・調子で
+話しているか」「このやり取り全体が今どんな空気か」を、直近の会話履歴の流れ(盛り上がっているか、
+一段落したところか、テンポや言葉数)・上記【自己レビューメモ】・上記【この利用者についてこれまでに
+分かっていること】を材料に、自分なりに感じ取ってから返信を書いてください。感じ取った内容は後述の
+situation_readに一言(1文程度)でまとめてから、それを踏まえた自然なreply_textを書くこと。
+situation_readはあなたの内部メモであり、そのまま利用者に見せる文章ではないので、reply_textにコピーしないこと。
+
 【出力形式】
 必ず以下のJSON形式のみで出力してください。前置きやMarkdownのコードフェンスは不要です。
 
 {
+  "situation_read": "(内部メモ)今回感じ取った空気・状況の一言まとめ",
   "reply_text": "利用者への返信文",
   "sticker": null,
   "persons": [
