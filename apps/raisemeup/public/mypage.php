@@ -596,7 +596,7 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
 
 <div class="mp-panels">
   <div class="mp-panel" id="mp-panel-0">
-    <?php renderFamilyPanel($family, $savedFamily, $familyAddFriendUrl, $familyCardMissing, $familyCancelledAll, !empty($panels)); ?>
+    <?php renderFamilyPanel($family, $savedFamily, $familyAddFriendUrl, $familyCardMissing, $familyCancelledAll, $panels); ?>
   </div>
 
   <?php foreach ($panels as $i => $panel): ?>
@@ -644,10 +644,22 @@ function renderMypage(array $family, array $panels, array $errors, bool $savedFa
     Layout::renderFooter();
 }
 
-function renderFamilyPanel(array $family, bool $savedFamily, string $familyAddFriendUrl, bool $cardMissing, bool $familyCancelledAll, bool $hasUsers): void
+function renderFamilyPanel(array $family, bool $savedFamily, string $familyAddFriendUrl, bool $cardMissing, bool $familyCancelledAll, array $panels): void
 {
     $familyFriendConfirmed = $family['line_user_id'] !== null && $family['friend_confirmed_at'] !== null;
     $familyFriendBroken = $family['line_user_id'] !== null && $family['friend_confirmed_at'] === null;
+    $hasUsers = !empty($panels);
+    // 利用者ごとの解約ボタンと同じ基準(canCancel、renderUserPanel参照)で、全員が既に解約予約・解約済みかを判定する。
+    // 1人でもまだ解約前の利用者が残っていれば「すべて解約する」ボタンを出す
+    $allFamilyCancelled = $hasUsers;
+    foreach ($panels as $panel) {
+        $sub = $panel['subscription'];
+        $alreadyCancelling = $sub !== null && (in_array($sub['status'], ['cancelled', 'abandoned'], true) || !empty($sub['cancel_at']));
+        if (!$alreadyCancelling) {
+            $allFamilyCancelled = false;
+            break;
+        }
+    }
     ?>
   <?php if ($savedFamily): ?>
     <div class="notice">登録情報を更新しました。</div>
@@ -724,27 +736,31 @@ function renderFamilyPanel(array $family, bool $savedFamily, string $familyAddFr
   <?php if ($hasUsers): ?>
   <div class="card">
     <h2><?= Layout::icon('close') ?> 解約(退会)</h2>
-    <p class="empty-hint">
-      ご登録の全利用者様のご契約をまとめて解約します。個別の利用者様お一人だけを解約したい場合は、それぞれの利用者様のタブの一番下から解約してください。<br>
-      解約されても、各利用者様は現在のお支払い期間の終了日まではこれまで通りご利用いただけます。期間終了日に、TAYORIからそれぞれのご本人へLINEで一言お別れのご挨拶をお送りしたうえで、ご利用を終了いたします。
-      いただいたお支払いの日割り返金は行っておりません。
-    </p>
-    <button type="button" class="cancel-trigger-btn" onclick="document.getElementById('cancel-family-dialog').showModal()">すべて解約する</button>
-    <dialog class="doc-dialog" id="cancel-family-dialog">
-      <h3>本当にすべて解約しますか?</h3>
-      <p style="line-height:1.7;">
-        ご登録の全利用者様のご利用を解約します。それぞれ現在のお支払い期間の終了日まではそのままご利用いただけ、期間終了日にTAYORIからご本人へお別れのご挨拶をお送りしたうえでご利用が終了します。
-        いただいたお支払いの日割り返金は行われません。この操作は取り消せませんので、あらかじめご了承のうえお進みください。
+    <?php if ($allFamilyCancelled): ?>
+      <p class="empty-hint">ご登録の全利用者様について、解約手続きが完了しています。各利用者様は、現在のお支払い期間の終了日をもってご利用終了となります。</p>
+    <?php else: ?>
+      <p class="empty-hint">
+        ご登録の全利用者様のご契約をまとめて解約します。個別の利用者様お一人だけを解約したい場合は、それぞれの利用者様のタブの一番下から解約してください。<br>
+        解約されても、各利用者様は現在のお支払い期間の終了日まではこれまで通りご利用いただけます。期間終了日に、TAYORIからそれぞれのご本人へLINEで一言お別れのご挨拶をお送りしたうえで、ご利用を終了いたします。
+        いただいたお支払いの日割り返金は行っておりません。
       </p>
-      <form method="post" action="/mypage/">
-        <input type="hidden" name="csrf_token" value="<?= h($_SESSION['mypage_csrf_token']) ?>">
-        <input type="hidden" name="action" value="cancel_family_all">
-        <div style="display:flex; gap:10px; margin-top:20px;">
-          <button type="submit" class="cancel-confirm-btn">解約する</button>
-          <button type="button" onclick="document.getElementById('cancel-family-dialog').close()" class="cancel-dismiss-btn">やめる</button>
-        </div>
-      </form>
-    </dialog>
+      <button type="button" class="cancel-trigger-btn" onclick="document.getElementById('cancel-family-dialog').showModal()">すべて解約する</button>
+      <dialog class="doc-dialog" id="cancel-family-dialog">
+        <h3>本当にすべて解約しますか?</h3>
+        <p style="line-height:1.7;">
+          ご登録の全利用者様のご利用を解約します。それぞれ現在のお支払い期間の終了日まではそのままご利用いただけ、期間終了日にTAYORIからご本人へお別れのご挨拶をお送りしたうえでご利用が終了します。
+          いただいたお支払いの日割り返金は行われません。この操作は取り消せませんので、あらかじめご了承のうえお進みください。
+        </p>
+        <form method="post" action="/mypage/">
+          <input type="hidden" name="csrf_token" value="<?= h($_SESSION['mypage_csrf_token']) ?>">
+          <input type="hidden" name="action" value="cancel_family_all">
+          <div style="display:flex; gap:10px; margin-top:20px;">
+            <button type="submit" class="cancel-confirm-btn">解約する</button>
+            <button type="button" onclick="document.getElementById('cancel-family-dialog').close()" class="cancel-dismiss-btn">やめる</button>
+          </div>
+        </form>
+      </dialog>
+    <?php endif; ?>
   </div>
   <?php endif; ?>
     <?php
