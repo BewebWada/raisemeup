@@ -36,7 +36,7 @@ $familyRepo = new FamilyAccountRepository($pdo);
 $lineClient = new LineClient(Config::get('LINE_FAMILY_CHANNEL_SECRET'), Config::get('LINE_FAMILY_CHANNEL_ACCESS_TOKEN'));
 // 解約時のお別れメッセージは、利用者本人との会話用チャネルから送る
 $userLineClient = new LineClient(Config::get('LINE_CHANNEL_SECRET'), Config::get('LINE_CHANNEL_ACCESS_TOKEN'));
-$cancellationService = new CancellationService($pdo, $stripe, $subscriptionRepo, $userRepo, $familyRepo, $userLineClient);
+$cancellationService = new CancellationService($pdo, $stripe, $subscriptionRepo, $userRepo, $familyRepo, $userLineClient, MailClient::fromConfig());
 
 $type = $event['type'] ?? '';
 $object = $event['data']['object'] ?? [];

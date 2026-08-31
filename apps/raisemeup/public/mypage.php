@@ -306,7 +306,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     new SubscriptionRepository($pdo),
                     $userRepo,
                     $familyRepo,
-                    new LineClient(Config::get('LINE_CHANNEL_SECRET'), Config::get('LINE_CHANNEL_ACCESS_TOKEN'))
+                    new LineClient(Config::get('LINE_CHANNEL_SECRET'), Config::get('LINE_CHANNEL_ACCESS_TOKEN')),
+                    MailClient::fromConfig()
                 );
                 $cancellationService->requestUserCancellation($cancelUserId, (int) $family['id']);
                 $cancelledUserId = $cancelUserId;
@@ -325,7 +326,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 new SubscriptionRepository($pdo),
                 $userRepo,
                 $familyRepo,
-                new LineClient(Config::get('LINE_CHANNEL_SECRET'), Config::get('LINE_CHANNEL_ACCESS_TOKEN'))
+                new LineClient(Config::get('LINE_CHANNEL_SECRET'), Config::get('LINE_CHANNEL_ACCESS_TOKEN')),
+                MailClient::fromConfig()
             );
             foreach ($ownedUserIds as $ownedUserId) {
                 $cancellationService->requestUserCancellation($ownedUserId, (int) $family['id']);

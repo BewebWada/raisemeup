@@ -10,6 +10,7 @@ require_once __DIR__ . '/../src/Layout.php';
 require_once __DIR__ . '/../src/ApplyDoneView.php';
 require_once __DIR__ . '/../src/ApplyConfirmView.php';
 require_once __DIR__ . '/../src/ConsentLogRepository.php';
+require_once __DIR__ . '/../src/MailClient.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Database.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
 
@@ -161,6 +162,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 );
 
                 $pdo->commit();
+
+                // 申込者(ご家族)への受付確認メール。LINE連携が完了する前の段階なので、確実に届く
+                // メールで送る。送信失敗はログに残すのみで、申込み自体は既に確定済みなので処理は止めない
+                if ($formValues['family_email'] !== '') {
+                    try {
+                        $mailClient = MailClient::fromConfig();
+                        if ($mailClient !== null) {
+                            $trialEndsAt = date('Y-m-d', strtotime('+' . TRIAL_DAYS . ' days'));
+                            $mailClient->send(
+                                $formValues['family_email'],
+                                '【TAYORI】お申込みを受け付けました',
+                                "{$familyFullName}様\n\n"
+                                . "TAYORIへのお申込みありがとうございます。以下の内容で受け付けました。\n\n"
+                                . "プラン: {$selectedPlan['name']}(月額" . number_format((int) $selectedPlan['price_yen']) . "円)\n"
+                                . "無料期間: 本日から{$trialEndsAt}まで\n\n"
+                                . "引き続き、お申込者様(ご自身)とご利用者様それぞれのLINE連携をお願いいたします。\n\n"
+                                . "ご不明な点はsupport@tayori-net.jpまでご連絡ください。"
+                            );
+                        }
+                    } catch (Throwable $e) {
+                        error_log('apply.php confirmation email failed: ' . $e->getMessage());
+                    }
+                }
 
                 // 呼び名は自動生成しない。デフォルトは「たより」のままにしておき、会話の中で本人から
                 // 「〇〇って呼びたい」等の希望があった場合だけConversationHandlerがcompanion_nameを更新する

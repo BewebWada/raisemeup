@@ -9,6 +9,7 @@ require_once __DIR__ . '/../src/PlanRepository.php';
 require_once __DIR__ . '/../src/SubscriptionRepository.php';
 require_once __DIR__ . '/../src/StripeClient.php';
 require_once __DIR__ . '/../src/ApplyDoneView.php';
+require_once __DIR__ . '/../src/MailClient.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Database.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
 
@@ -106,6 +107,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $subscriptionId = $subscriptionRepo->createTrial($user['id'], (int) $family['id'], (int) $selectedPlan['id'], TRIAL_DAYS);
 
             $pdo->commit();
+
+            // 申込者(ご家族)への追加確認メール。送信失敗はログに残すのみで、追加自体は既に確定済みなので
+            // 処理は止めない
+            if (!empty($family['email'])) {
+                try {
+                    $mailClient = MailClient::fromConfig();
+                    if ($mailClient !== null) {
+                        $trialEndsAt = date('Y-m-d', strtotime('+' . TRIAL_DAYS . ' days'));
+                        $mailClient->send(
+                            (string) $family['email'],
+                            '【TAYORI】利用者を追加しました',
+                            (string) ($family['name'] ?? '') . "様\n\n"
+                            . "TAYORIのご利用者様を追加しました。以下の内容で受け付けました。\n\n"
+                            . "プラン: {$selectedPlan['name']}(月額" . number_format((int) $selectedPlan['price_yen']) . "円)\n"
+                            . "無料期間: 本日から{$trialEndsAt}まで\n\n"
+                            . "引き続き、追加されたご利用者様のLINE連携をお願いいたします。\n\n"
+                            . "ご不明な点はsupport@tayori-net.jpまでご連絡ください。"
+                        );
+                    }
+                } catch (Throwable $e) {
+                    error_log('mypage_add_user.php confirmation email failed: ' . $e->getMessage());
+                }
+            }
 
             // 家族は既に支払い情報登録済み(stripe_customer_id設定済み)の場合のみ、Checkoutを経由せず
             // 直接Subscriptionを作成する(カード再入力なし)。未登録の場合はローカルのtrialのみ作成し、

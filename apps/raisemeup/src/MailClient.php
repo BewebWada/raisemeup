@@ -21,6 +21,23 @@ class MailClient
         $this->fromName = $fromName;
     }
 
+    // SMTP_HOST未設定の環境(ローカル開発等)では、呼び出し側が null チェック1つでメール送信自体を
+    // スキップできるようにする(check_subscriptions.phpで最初に使われた方針を他の呼び出し元にも共通化)
+    public static function fromConfig(): ?self
+    {
+        if (Config::get('SMTP_HOST', '') === '') {
+            return null;
+        }
+        return new self(
+            Config::get('SMTP_HOST', ''),
+            (int) Config::get('SMTP_PORT', '587'),
+            Config::get('SMTP_USERNAME', ''),
+            Config::get('SMTP_PASSWORD', ''),
+            Config::get('SMTP_USERNAME', ''),
+            Config::get('SMTP_FROM_NAME', 'TAYORI')
+        );
+    }
+
     public function send(string $toEmail, string $subject, string $body): void
     {
         $socket = @fsockopen($this->host, $this->port, $errno, $errstr, 10);
