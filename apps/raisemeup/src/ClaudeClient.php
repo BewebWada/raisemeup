@@ -969,9 +969,12 @@ PROMPT;
      * 同様に「事実(薬の名前・区別)は正確に伝えつつ、言い回しは自然な話し言葉にAIが変換する」方針にする。
      * この経路は会話履歴・要約を渡していない(健康に関わる事務通知のため、深夜早朝ガードの対象外にしてまで
      * 即時性を優先している)ので、感じ取れる文脈が乏しく、他の生成メソッドのような空気読みステップ
-     * (situation_read)は付けていない。失敗時は空文字を返す(呼び出し側は正確さ優先の固定文にフォールバックする想定)
+     * (situation_read)は付けていない。失敗時は空文字を返す(呼び出し側は正確さ優先の固定文にフォールバックする想定)。
+     * $personaFactsはコンパニオン自身の軽い設定(既に生成済みのものだけを渡す想定、無ければ空配列)。
+     * 服薬の要件だけが毎回機械的に続くと味気ないという声を受けて2026-09-01に追加した。あくまで「たまに」
+     * 添える程度に留め、薬の情報を伝える本来の目的を薄めないようプロンプト側で頻度を制御している
      */
-    public function generateMedicationReminder(array $titles, string $companionName, string $userDisplayName, ?string $userGender = null): string
+    public function generateMedicationReminder(array $titles, string $companionName, string $userDisplayName, ?string $userGender = null, array $personaFacts = []): string
     {
         $userLabel = $userDisplayName !== '' ? "{$userDisplayName}さん" : '利用者';
         $genderLine = match ($userGender) {
@@ -980,6 +983,14 @@ PROMPT;
             default => '',
         };
         $titlesBlock = implode("\n", array_map(fn($t) => '・' . $t, $titles));
+        $personaLine = '';
+        if (!empty($personaFacts)) {
+            $personaBlock = implode("\n", array_map(fn($p) => '・' . $p, $personaFacts));
+            $personaLine = "\n【あなた自身について(参考。毎回使う必要はない)】\n{$personaBlock}\n"
+                . "- 3回に1回程度を目安に、お薬の用件を伝えた後にごく短く(5〜10文字程度)天気や一言だけ添えてよい"
+                . "(例:「そういえば今日は暑いね」)。毎回付けると煩わしいので、大半は薬の一言だけで済ませること。"
+                . "上記の設定にない新しい身の上話は作り出さないこと\n";
+        }
 
         $systemPrompt = <<<PROMPT
 あなたの名前は「{$companionName}」です。高齢者向け会話サービスのAIコンパニオンとして、{$userLabel}専属の話し相手を務めています。
@@ -989,14 +1000,15 @@ PROMPT;
 
 【対象のお薬(正確に伝えること。複数ある場合は全て触れること)】
 {$titlesBlock}
-
+{$personaLine}
 【メッセージの条件】
 - 友達同士で話すようなくだけた話し言葉(タメ口。「です」「ます」は使わない)にすること
 - 上記は「内用薬(昼食後)」のようなデータ記録用の機械的な表記なので、そのままカギカッコ付きで読み上げず、
   「お昼のお薬」「夕方のぶん」のような自然な話し言葉に言い換えること。ただし、どの薬のことか分からなくなる
   ほど省略しないこと(複数ある場合、名前や食前食後等の区別は保持すること)
 - 「お薬の時間だね」のように軽く声をかけ、最後に「飲んだら教えてね」のような、飲んだことを報告してほしい
-  一言を必ず含めること(このメッセージへの返信で服薬確認を記録するため)
+  一言を必ず含めること(このメッセージへの返信で服薬確認を記録するため)。この一言を薄めるような
+  長い付け足しはしないこと
 - 1〜2文の短さにすること
 - LINEでのやり取りなので、気持ちに合った絵文字を1個程度、自然に添えること
 - 出力はメッセージ本文のみ。前置き・カギカッコ・署名は不要

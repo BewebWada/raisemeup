@@ -34,16 +34,22 @@ require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
 
 // このバッチが実行されるたび(=10分に1回想定)、対象者ごとにこの確率で声かけするかどうかを抽選する。
 // 深夜早朝(21:00-08:00)を除く13時間 = 78回/日の実行機会に対してこの値なので、
-// 「沈黙4時間超の利用者が、その日のうちに一度もTAYORIから声をかけられない確率」は約65%
-// (=1日のうちに声がかかる確率はおよそ35%。1日1回抽選していた頃とほぼ同じ体感になるよう逆算した値)。
+// 「沈黙4時間超の利用者が、その日のうちに一度もTAYORIから声をかけられない確率」は約31%
+// (=1日のうちに声がかかる確率はおよそ69%)。
 // 判定基準そのもの(静かな時間帯の除外・沈黙時間の下限)は変えていない
+//
+// 2026-09-01: 服薬リマインド導入後、CHECKIN_WINDOWSの枠内はほぼ常に「保証チェックイン」の定型トーン
+// (situationLine)で埋まってしまい、この抽選由来の自然な雑談(枠外、実質12:00-17:00の自由時間帯のみで
+// 発火しうる)がほとんど当たらず、利用者から見て「服薬+定型チェックインしか来ない」体感になっていた
+// 不具合を受けて、旧0.0055から引き上げた(実質的な自由時間帯である5時間=30回の実行機会に対して
+// この値だと約35%/日だった1回ヒット率を約60%まで引き上げる計算)
 //
 // この確率は「毎日必ず1回は声がかかる」ことを保証しない(独立試行なので、日によっては声がかからない
 // 日が続きうる)。実際に運用中、抽選が外れ続けて丸4日間声かけゼロになったケースを確認した
-// (314回試行して0ヒットは約18%の確率で起こりうる範囲内であり、バグではなく設計上の性質だった)。
+// (旧値0.0055・314回試行で0ヒットは約18%の確率で起こりうる範囲内であり、バグではなく設計上の性質だった)。
 // 「自然な友達感」は保ちつつ、安否確認として毎日決まった時間帯には必ず会話が成立するようにするため、
 // CHECKIN_WINDOWSによる下限保証を別途設けている(下記参照)。
-const PROACTIVE_CHANCE_PER_RUN = 0.0055;
+const PROACTIVE_CHANCE_PER_RUN = 0.015;
 
 // 安否確認を兼ねた「必ず会話する」時間帯(24時間表記、endは含まない)。利用者の健康・安全確認のため、
 // 1日2回(午前中・夜)、この時間帯の中で最低1往復(TAYORIからの声かけだけでも、それに対する返信だけでも
@@ -523,7 +529,7 @@ function sendMedicationReminders(PDO $pdo, LineClient $lineClient, ClaudeClient 
 {
     $stmt = $pdo->prepare(
         "SELECT s.id AS schedule_id, s.title, s.user_id, u.line_user_id,
-                u.display_name, u.companion_name, u.gender
+                u.display_name, u.companion_name, u.gender, u.companion_persona
          FROM schedules s
          JOIN users u ON u.id = s.user_id
          WHERE s.is_medication = 1 AND s.status = 'upcoming'
@@ -549,6 +555,7 @@ function sendMedicationReminders(PDO $pdo, LineClient $lineClient, ClaudeClient 
         $byUser[$userId]['display_name'] = $row['display_name'];
         $byUser[$userId]['companion_name'] = $row['companion_name'];
         $byUser[$userId]['gender'] = $row['gender'];
+        $byUser[$userId]['companion_persona'] = $row['companion_persona'];
         $byUser[$userId]['schedules'][] = $row;
     }
 
@@ -559,8 +566,17 @@ function sendMedicationReminders(PDO $pdo, LineClient $lineClient, ClaudeClient 
 
         // AIにその人らしい自然な言い回しで生成してもらう(「内用薬(昼食後)」のようなDB記録用の機械的な
         // 表記をそのまま読み上げないようにするため)。失敗時のみ、内容を確実に伝えられる固定の定型文に
-        // フォールバックする(健康に関わるため、正確に伝わることを最優先する)
-        $text = $claudeClient->generateMedicationReminder($titles, $companionName, (string) $data['display_name'], $data['gender']);
+        // フォールバックする(健康に関わるため、正確に伝わることを最優先する)。
+        // $personaFactsは既に生成済みのコンパニオン設定があれば軽く添えるためのもの(2026-09-01追加。
+        // 服薬リマインドだけが延々と続くと味気ないという声を受けて、事実の正確さを損なわない範囲で
+        // ごくたまに一言添えられる余地を持たせた)。未生成の利用者向けにここで新規生成まではしない
+        // (服薬リマインドは即時性を優先する経路のため、Claude呼び出しを1回に抑える)
+        $personaFacts = [];
+        if (!empty($data['companion_persona'])) {
+            $decoded = json_decode((string) $data['companion_persona'], true);
+            $personaFacts = is_array($decoded) ? $decoded : [];
+        }
+        $text = $claudeClient->generateMedicationReminder($titles, $companionName, (string) $data['display_name'], $data['gender'], $personaFacts);
         if ($text === '') {
             $text = count($titles) === 1
                 ? "「{$titles[0]}」の時間だね。飲んだら教えてね。"
@@ -710,6 +726,7 @@ if ($isQuietHoursNow) {
         // 通常の低確率抽選ではなく「この時間帯終了までに確実に送る」保証モードに切り替える
         // (残り実行回数の逆数を確率にすることで、外れ続けても最後の1回で確実に当たる)
         $isGuaranteed = false;
+        $remainingRuns = null;
         $chance = PROACTIVE_CHANCE_PER_RUN;
         if ($window !== null) {
             $windowStart = (clone $now)->setTime($window['start'], 0, 0);
@@ -717,7 +734,8 @@ if ($isQuietHoursNow) {
             $windowAlreadyConfirmed = $lastContactAt !== null && $lastContactAt >= $windowStart;
             if (!$windowAlreadyConfirmed) {
                 $isGuaranteed = true;
-                $chance = 1 / remainingActiveRuns($now, $window['end']);
+                $remainingRuns = remainingActiveRuns($now, $window['end']);
+                $chance = 1 / $remainingRuns;
             }
         }
 
@@ -730,12 +748,22 @@ if ($isQuietHoursNow) {
         $companionName = $row['companion_name'] ?: 'たより';
         $hadPendingWorry = hasPendingUrgentSilenceAlert($pdo, (int) $row['id']);
         $recentExchanges = getRecentExchanges($pdo, (int) $row['id']);
+
+        // 2026-09-01: 「保証モードで当たった」＝「本当にこの時間帯最後のダメ押しで送った」とは限らない
+        // (remainingRunsが大きいうち、つまり時間帯の早い段階でくじが当たることも普通にある)。
+        // これまでは$isGuaranteed=trueであれば常に「しばらく会話が無かったタイミングです」という
+        // 定型の安否確認トーン(situationLine)を使っていたため、時間帯内の発話がほぼ全て同じ調子になり、
+        // 服薬リマインドと合わせて「毎日同じことしか言わない」体感を招いていた。
+        // 残り実行回数が僅か(=本当に時間帯の終わり際)の時だけ安否確認トーンにし、それ以外は
+        // 通常の気まぐれ雑談と同じトーンで生成する(会話成立という保証モードの目的自体は変えていない)
+        $useCheckinTone = $isGuaranteed && $remainingRuns <= 3;
+
         $text = $claudeClient->generateProactiveMessage(
             $summaries,
             $companionName,
             (string) $row['display_name'],
             $row['gender'],
-            $isGuaranteed,
+            $useCheckinTone,
             $hadPendingWorry,
             $recentExchanges,
             $topicCoverage,
