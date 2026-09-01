@@ -37,7 +37,7 @@ $faqJsonLd = SupportFaq::buildJsonLd($categories);
     display:flex; flex-direction:column; gap:10px; max-height:420px; overflow-y:auto;
     padding:12px; margin-bottom:14px; border:1px solid #e4dfd3; border-radius:var(--radius-lg); background:var(--bg);
   }
-  .bot-bubble { display:flex; gap:8px; max-width:88%; }
+  .bot-bubble { display:flex; align-items:center; gap:8px; max-width:88%; }
   .bot-bubble.bot-ai { align-self:flex-start; }
   .bot-bubble.bot-user { align-self:flex-end; flex-direction:row-reverse; }
   .bot-avatar {
