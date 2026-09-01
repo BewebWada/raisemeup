@@ -11,11 +11,12 @@ require_once __DIR__ . '/../src/LineClient.php';
 require_once __DIR__ . '/../src/UserRepository.php';
 require_once __DIR__ . '/../src/FamilyAccountRepository.php';
 require_once __DIR__ . '/../src/FriendConfirmationService.php';
+require_once __DIR__ . '/../src/Session.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Database.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
 
 Env::load(__DIR__ . '/../../../.env');
-session_start();
+Session::start();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header('Location: /apply/');

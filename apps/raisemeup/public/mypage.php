@@ -15,11 +15,12 @@ require_once __DIR__ . '/../src/LineLoginClient.php';
 require_once __DIR__ . '/../src/LineClient.php';
 require_once __DIR__ . '/../src/FriendConfirmationService.php';
 require_once __DIR__ . '/../src/Layout.php';
+require_once __DIR__ . '/../src/Session.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Database.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
 
 Env::load(__DIR__ . '/../../../.env');
-session_start();
+Session::start();
 
 $dbConfig = require __DIR__ . '/../db/config.php';
 $pdo = Database::connect($dbConfig);

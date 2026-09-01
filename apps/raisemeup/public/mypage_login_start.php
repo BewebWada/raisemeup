@@ -2,10 +2,11 @@
 // マイページの「LINEでログイン」ボタンの遷移先。CSRF対策のstateを発行してLINEの認可画面へリダイレクトする
 require_once __DIR__ . '/../src/Config.php';
 require_once __DIR__ . '/../src/LineLoginClient.php';
+require_once __DIR__ . '/../src/Session.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
 
 Env::load(__DIR__ . '/../../../.env');
-session_start();
+Session::start();
 
 if (Config::get('LINE_FAMILY_LOGIN_CHANNEL_ID', '') === '') {
     header('Location: /mypage/?login_error=1');

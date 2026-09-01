@@ -3,11 +3,12 @@
 require_once __DIR__ . '/../src/Config.php';
 require_once __DIR__ . '/../src/FamilyAccountRepository.php';
 require_once __DIR__ . '/../src/StripeClient.php';
+require_once __DIR__ . '/../src/Session.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Database.php';
 require_once __DIR__ . '/../../../shared/db-toolkit/Env.php';
 
 Env::load(__DIR__ . '/../../../.env');
-session_start();
+Session::start();
 
 $familyId = $_SESSION['mypage_family_id'] ?? null;
 if ($familyId === null) {
