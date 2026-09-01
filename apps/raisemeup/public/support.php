@@ -251,7 +251,9 @@ $faqJsonLd = SupportFaq::buildJsonLd($categories);
 
   sendBtn.addEventListener('click', sendMessage);
   inputEl.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') {
+    // 日本語入力(IME)で変換候補を確定する際のEnterでも発火してしまうため、
+    // 変換中(isComposing、Safariでは代わりにkeyCode 229)は送信しないようにする
+    if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) {
       sendMessage();
     }
   });
