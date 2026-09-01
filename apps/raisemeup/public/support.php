@@ -72,7 +72,8 @@ $faqJsonLd = SupportFaq::buildJsonLd($categories);
   }
   .bot-input-row button:hover:not(:disabled) { background:var(--brand-dark); }
   .bot-input-row button:disabled, .bot-input-row input:disabled { opacity:0.55; cursor:not-allowed; }
-  .bot-hint { color:var(--text-muted); font-size:0.78rem; margin:10px 2px 0; min-height:1.2em; }
+  .bot-disclaimer { color:var(--text-muted); font-size:0.72rem; opacity:0.8; margin:10px 2px 0; }
+  .bot-hint { color:var(--text-muted); font-size:0.78rem; margin:6px 2px 0; min-height:1.2em; }
 
   /* --- FAQ一覧 --- */
   .faq-category { margin-bottom:36px; }
@@ -135,6 +136,7 @@ $faqJsonLd = SupportFaq::buildJsonLd($categories);
     <input type="text" id="botInput" placeholder="質問を入力してください" maxlength="300" autocomplete="off">
     <button type="button" id="botSend">送信</button>
   </div>
+  <p class="bot-disclaimer">AIが自動でお答えしており、内容が正確でない場合があります。また、ご利用いただける回数には上限があります。</p>
   <p class="bot-hint" id="botHint"></p>
 </section>
 
