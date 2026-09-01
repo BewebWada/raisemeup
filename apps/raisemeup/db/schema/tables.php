@@ -283,6 +283,16 @@ return [
         INDEX idx_ip_created (ip_address, created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='トップページの公開チャットシミュレーション(未ログイン)のレート制限用。件数のみ記録し会話本文は保存しない。実際の利用者データ(users/conversations)とは完全に分離';",
 
+    'support_chat_sessions' => "CREATE TABLE IF NOT EXISTS support_chat_sessions (
+        id                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        session_token       VARCHAR(64) NOT NULL UNIQUE COMMENT 'クライアントに払い出す不透明なトークン(sessionStorageに保持)',
+        ip_address          VARCHAR(45) NOT NULL,
+        turn_count          INT UNSIGNED NOT NULL DEFAULT 0,
+        created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_ip_created (ip_address, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='サポートページ(support.php)のサポートbotのレート制限用。件数のみ記録し会話本文は保存しない。demo_chat_sessionsとは用途が別のため独立させている';",
+
     'user_summaries' => "CREATE TABLE IF NOT EXISTS user_summaries (
         id                          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         user_id                     BIGINT UNSIGNED NOT NULL,

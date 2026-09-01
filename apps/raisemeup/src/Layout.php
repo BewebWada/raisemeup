@@ -16,7 +16,7 @@ class Layout
     private const NAV = [
         'top' => ['/', 'トップ'],
         'about' => ['/about/', 'TAYORIについて'],
-        'faq' => ['/faq/', 'よくある質問'],
+        'support' => ['/support/', 'サポート'],
         'mypage' => ['/mypage/', 'マイページ'],
     ];
 

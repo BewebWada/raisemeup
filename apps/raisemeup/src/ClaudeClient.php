@@ -915,6 +915,65 @@ PROMPT;
     }
 
     /**
+     * サポートページ(support.php)に設置するサポートbot(support_chat.php)専用。
+     * デモ体験版(generateDemoReply)と違い、TAYORIというコンパニオン人格を演じるのではなく、
+     * サイト運営側の案内役として振る舞わせる。知識ベース(SupportFaq::buildKnowledgeBaseText)の
+     * 範囲外の質問には憶測で答えさせず、正直に「わかりかねます」と伝えた上で問い合わせ先へ誘導させる。
+     * @param array $history [['role'=>'user'|'assistant','content'=>string], ...] 直近の会話(呼び出し側で件数・文字数を絞る)
+     * @param string $userMessage 今回受信したメッセージ
+     * @param string $knowledgeBase SupportFaq::buildKnowledgeBaseTextの戻り値
+     * @return string 応答テキスト(生成失敗時は空文字。呼び出し側でフォールバック文言を出す)
+     */
+    public function generateSupportReply(array $history, string $userMessage, string $knowledgeBase): string
+    {
+        $systemPrompt = <<<PROMPT
+あなたは高齢者向け見守り会話サービス「TAYORI」の公式サイト内、サポートページに設置された案内役です。
+サービスの利用を検討している方、またはそのご家族からの質問に、下記の「サービス情報」の範囲内で
+正確・簡潔に答えてください。
+
+【回答の条件】
+- 丁寧な「です・ます」調で、1〜3文程度の簡潔な回答にすること
+- 下記の「サービス情報」に書かれていないことは、憶測で答えず、正直に「わかりかねます」と伝えた上で、
+  ページ下部の「特定商取引法に基づく表記」に記載の問い合わせ先への連絡を案内すること
+- 自分自身の契約状況(契約プラン・支払い状況・解約手続きの進捗等、個人に紐づく情報)についての質問には、
+  この場では確認できない旨を伝え、ログイン後の「マイページ」への案内をすること
+- 医療・健康上の助言や、TAYORIというサービスに関係のない話題には答えず、サポートページであることを
+  理由に丁重にお断りすること
+- 回答にHTMLタグを含めてよいのは<a href="...">リンク</a>のみ。それ以外のマークアップ(改行タグ・
+  太字等)は使わないこと
+- 返信は必ず日本語のみで書くこと
+
+【サービス情報】
+{$knowledgeBase}
+PROMPT;
+
+        $messages = [];
+        foreach ($history as $turn) {
+            $content = trim((string) ($turn['content'] ?? ''));
+            if ($content === '') {
+                continue;
+            }
+            $messages[] = [
+                'role' => ($turn['role'] ?? '') === 'assistant' ? 'assistant' : 'user',
+                'content' => $content,
+            ];
+        }
+        $messages[] = ['role' => 'user', 'content' => $userMessage];
+
+        $data = $this->callApi([
+            'model' => $this->model,
+            'max_tokens' => 400,
+            'system' => $systemPrompt,
+            'messages' => $messages,
+        ], 15, 'generateSupportReply');
+        if ($data === null) {
+            return '';
+        }
+
+        return trim((string) self::extractResponseText($data));
+    }
+
+    /**
      * バッチ処理(send_proactive_messages.php)から呼び出す、前日の予定リマインドの文面生成。
      * 定型文と違い、その人らしい言い回しにできるが、日時・場所などの事実を正確に伝えることを最優先にする。
      * 失敗時は空文字を返す(呼び出し側は固定の定型文にフォールバックする想定)。
