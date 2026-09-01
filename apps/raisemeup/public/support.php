@@ -20,17 +20,22 @@ $faqJsonLd = SupportFaq::buildJsonLd($categories);
   h1 { font-size:1.6rem; margin-bottom:8px; }
   .support-lead { color:var(--text-muted); line-height:1.8; margin:0 0 32px; }
 
+  /* --- セクション見出し(トップページの.section-headと同じ仕様) --- */
+  .section-head { text-align:center; max-width:600px; margin:0 auto 36px; }
+  .section-head h2 { font-size:clamp(1.4rem, 3vw, 1.8rem); margin:0 0 10px; }
+  .section-head p { color:var(--text-muted); line-height:1.8; margin:0; font-size:0.98rem; }
+
   /* --- サポートbot --- */
   .support-bot {
     background:var(--surface); border-radius:var(--radius-lg); box-shadow:0 2px 14px rgba(61,58,53,0.05);
-    padding:22px; margin-bottom:48px;
+    padding:22px; margin-top:48px;
   }
   .support-bot h2 { font-size:1.05rem; color:var(--brand-dark); margin:0 0 4px; display:flex; align-items:center; gap:8px; }
   .support-bot h2 .icon { width:1.15em; height:1.15em; color:var(--brand); }
   .support-bot .bot-note { color:var(--text-muted); font-size:0.85rem; line-height:1.7; margin:0 0 16px; }
   .bot-messages {
     display:flex; flex-direction:column; gap:10px; max-height:420px; overflow-y:auto;
-    padding:4px 2px 8px; margin-bottom:14px;
+    padding:12px; margin-bottom:14px; border:1px solid #e4dfd3; border-radius:var(--radius-lg); background:var(--bg);
   }
   .bot-bubble { display:flex; gap:8px; max-width:88%; }
   .bot-bubble.bot-ai { align-self:flex-start; }
@@ -70,7 +75,6 @@ $faqJsonLd = SupportFaq::buildJsonLd($categories);
   .bot-hint { color:var(--text-muted); font-size:0.78rem; margin:10px 2px 0; min-height:1.2em; }
 
   /* --- FAQ一覧 --- */
-  .faq-heading { font-size:1.05rem; color:var(--brand-dark); margin:0 0 16px; }
   .faq-category { margin-bottom:36px; }
   .faq-category:last-child { margin-bottom:0; }
   .faq-category h3 { font-size:0.98rem; color:var(--brand-dark); margin:0 0 14px; }
@@ -100,21 +104,14 @@ $faqJsonLd = SupportFaq::buildJsonLd($categories);
 </style>
 
 <h1>サポート</h1>
-<p class="support-lead">TAYORIについてのご質問に、下のサポートbotがその場でお答えします。よくある質問は下に一覧でもまとめています。</p>
+<p class="support-lead">TAYORIのサービス内容や料金・お申込みについてのご質問にお答えします。</p>
 
-<section class="support-bot">
-  <h2><?= Layout::icon('chat') ?>サポートbotに質問する</h2>
-  <p class="bot-note">TAYORIのサービス内容や料金・お申込みについて、気になることを話しかけてください。ご自身の契約内容など個別のお問い合わせは、マイページまたは特定商取引法に基づく表記の連絡先をご案内します。</p>
-  <div class="bot-messages" id="botMessages"></div>
-  <div class="bot-input-row">
-    <input type="text" id="botInput" placeholder="質問を入力してください" maxlength="300" autocomplete="off">
-    <button type="button" id="botSend">送信</button>
-  </div>
-  <p class="bot-hint" id="botHint"></p>
-</section>
-
-<h2 class="faq-heading">よくある質問</h2>
 <script type="application/ld+json"><?= json_encode($faqJsonLd, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?></script>
+
+<div class="section-head">
+  <h2>よくある質問</h2>
+  <p>ここにない質問は、下のサポートbotにご質問ください。</p>
+</div>
 
 <?php foreach ($categories as $category): ?>
   <div class="faq-category">
@@ -129,6 +126,17 @@ $faqJsonLd = SupportFaq::buildJsonLd($categories);
     </div>
   </div>
 <?php endforeach; ?>
+
+<section class="support-bot">
+  <h2><?= Layout::icon('chat') ?>サポートbotに質問する</h2>
+  <p class="bot-note">TAYORIのサービス内容や料金・お申込みについて、気になることを話しかけてください。ご自身の契約内容など個別のお問い合わせは、マイページまたは特定商取引法に基づく表記の連絡先をご案内します。</p>
+  <div class="bot-messages" id="botMessages"></div>
+  <div class="bot-input-row">
+    <input type="text" id="botInput" placeholder="質問を入力してください" maxlength="300" autocomplete="off">
+    <button type="button" id="botSend">送信</button>
+  </div>
+  <p class="bot-hint" id="botHint"></p>
+</section>
 
 <script>
 (function () {
