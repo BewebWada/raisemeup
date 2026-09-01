@@ -130,7 +130,7 @@ $faqJsonLd = SupportFaq::buildJsonLd($categories);
 
 <section class="support-bot">
   <h2><?= Layout::icon('chat') ?>サポートbotに質問する</h2>
-  <p class="bot-note">TAYORIのサービス内容や料金・お申込みについて、気になることを話しかけてください。ご自身の契約内容など個別のお問い合わせは、マイページまたは特定商取引法に基づく表記の連絡先をご案内します。</p>
+  <p class="bot-note">TAYORIのサービス内容や料金・お申込みについて、気になることを話しかけてください。</p>
   <div class="bot-messages" id="botMessages"></div>
   <div class="bot-input-row">
     <input type="text" id="botInput" placeholder="質問を入力してください" maxlength="300" autocomplete="off">
