@@ -251,7 +251,7 @@ function renderExpiredNotice(): void
 </style>
 <div class="card">
   <h1>このリンクは無効です</h1>
-  <p>お申込み内容が見つかりませんでした。既にお手続きが完了しているか、リンクの有効期限が切れている可能性があります。心当たりがない場合は<a href="mailto:support@tayori-net.jp">support@tayori-net.jp</a>までご連絡ください。</p>
+  <p>お申込み内容が見つかりませんでした。既にお手続きが完了しているか、リンクの有効期限が切れている可能性があります。心当たりがない場合は<a href="/support/">サポートページ</a>でご確認ください。</p>
 </div>
     <?php
     Layout::renderFooter();

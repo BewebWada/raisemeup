@@ -159,7 +159,7 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         . (!empty($row['user_invite_code'])
             ? "以下のリンクから、LINE連携の手続きを再開できます。\n" . $resumeBaseUrl . urlencode($row['user_invite_code']) . "\n\n"
             : '')
-        . "ご不明な点はsupport@tayori-net.jpまでご連絡ください。";
+        . "ご不明な点はサポートページ(" . rtrim(Config::get('APP_BASE_URL', ''), '/') . "/support/)でご確認ください。";
     notifyFamilyEmail($mailClient, $row['family_email'], $subject, $body);
     $abandonReminderCount++;
 }
@@ -213,7 +213,7 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             . "お申込みを一旦キャンセルいたしました。料金は発生しておりません。\n\n"
             . "改めてご利用になりたい場合は、お手数ですが再度お申込みください。\n"
             . rtrim(Config::get('APP_BASE_URL', ''), '/') . "/apply/\n\n"
-            . "ご不明な点はsupport@tayori-net.jpまでご連絡ください。";
+            . "ご不明な点はサポートページ(" . rtrim(Config::get('APP_BASE_URL', ''), '/') . "/support/)でご確認ください。";
         notifyFamilyEmail($mailClient, $row['family_email'], $subject, $body);
     }
     $abandonedCount++;

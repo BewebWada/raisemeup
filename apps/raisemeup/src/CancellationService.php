@@ -63,7 +63,7 @@ class CancellationService
                     . "{$displayName}様のTAYORIご利用について、解約の受付が完了しました。\n"
                     . "お支払い済みの期間は引き続きご利用いただけ、{$cancelDate}をもって終了となります。それまでの間、料金は発生しません。\n\n"
                     . "解約を取り消したい場合は、期間終了日より前にマイページからお手続きください。\n\n"
-                    . "ご不明な点はsupport@tayori-net.jpまでご連絡ください。"
+                    . "ご不明な点はサポートページ(" . rtrim(Config::get('APP_BASE_URL', ''), '/') . "/support/)でご確認ください。"
                 );
             }
         } else {
@@ -102,7 +102,7 @@ class CancellationService
             ($family['name'] ?? '') . "様\n\n"
             . "{$displayName}様のTAYORIご利用が、本日をもちまして終了しました。今までご利用いただき、ありがとうございました。\n\n"
             . "またご利用になりたい場合は、お手数ですが改めてお申込みください。\n\n"
-            . "ご不明な点はsupport@tayori-net.jpまでご連絡ください。"
+            . "ご不明な点はサポートページ(" . rtrim(Config::get('APP_BASE_URL', ''), '/') . "/support/)でご確認ください。"
         );
     }
 

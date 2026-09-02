@@ -179,7 +179,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 . "プラン: {$selectedPlan['name']}(月額" . number_format((int) $selectedPlan['price_yen']) . "円)\n"
                                 . "無料期間: 本日から{$trialEndsAt}まで\n\n"
                                 . "引き続き、お申込者様(ご自身)とご利用者様それぞれのLINE連携をお願いいたします。\n\n"
-                                . "ご不明な点はsupport@tayori-net.jpまでご連絡ください。"
+                                . "ご不明な点はサポートページ(" . rtrim(Config::get('APP_BASE_URL', ''), '/') . "/support/)でご確認ください。"
                             );
                         }
                     } catch (Throwable $e) {
@@ -446,7 +446,7 @@ function renderForm(array $plans, array $errors, array $v, string $csrfToken, ?a
       <?php elseif ($duplicateCanLogin): ?>
         <strong>ご確認ください</strong>このメールアドレスは既にご登録済みです。お手数ですが<a href="/mypage_login_start.php">マイページにログイン</a>してご確認ください。
       <?php else: ?>
-        <strong>ご確認ください</strong>このメールアドレスでは既にお申込みをいただいています。心当たりがない場合や、続きのお手続きについては<a href="mailto:support@tayori-net.jp">support@tayori-net.jp</a>までご連絡ください。
+        <strong>ご確認ください</strong>このメールアドレスでは既にお申込みをいただいています。心当たりがない場合や、続きのお手続きについては<a href="/support/">サポートページ</a>でご確認ください。
       <?php endif; ?>
       </div>
     </div>

@@ -124,7 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             . "プラン: {$selectedPlan['name']}(月額" . number_format((int) $selectedPlan['price_yen']) . "円)\n"
                             . "無料期間: 本日から{$trialEndsAt}まで\n\n"
                             . "引き続き、追加されたご利用者様のLINE連携をお願いいたします。\n\n"
-                            . "ご不明な点はsupport@tayori-net.jpまでご連絡ください。"
+                            . "ご不明な点はサポートページ(" . rtrim(Config::get('APP_BASE_URL', ''), '/') . "/support/)でご確認ください。"
                         );
                     }
                 } catch (Throwable $e) {

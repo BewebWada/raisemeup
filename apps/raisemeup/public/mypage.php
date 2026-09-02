@@ -314,7 +314,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $cancelledUserId = $cancelUserId;
             } catch (Throwable $e) {
                 error_log('mypage user cancellation failed: ' . $e->getMessage());
-                $errors[] = '解約処理に失敗しました。お手数ですが時間をおいて再度お試しいただくか、support@tayori-net.jpまでご連絡ください。';
+                $errors[] = '解約処理に失敗しました。お手数ですが時間をおいて再度お試しいただくか、サポートページでご確認ください。';
             }
         }
     } elseif ($action === 'cancel_family_all') {
@@ -336,7 +336,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $familyCancelledAll = true;
         } catch (Throwable $e) {
             error_log('mypage family cancellation failed: ' . $e->getMessage());
-            $errors[] = '解約処理に失敗しました。お手数ですが時間をおいて再度お試しいただくか、support@tayori-net.jpまでご連絡ください。';
+            $errors[] = '解約処理に失敗しました。お手数ですが時間をおいて再度お試しいただくか、サポートページでご確認ください。';
         }
     }
 }
@@ -725,7 +725,7 @@ function renderFamilyPanel(array $family, bool $savedFamily, string $familyAddFr
         <div class="hint">ボタンを押すと、決済代行会社Stripeの管理ページに移動します。操作が終わると、この画面に戻ります。</div>
       <?php endif; ?>
     <?php else: ?>
-      <p class="empty-hint" style="color:#a12a1f;">お支払い情報は未登録です。お手数ですがsupport@tayori-net.jpまでご連絡ください。</p>
+      <p class="empty-hint" style="color:#a12a1f;">お支払い情報は未登録です。お手数ですが<a href="/support/">サポートページ</a>でご確認ください。</p>
     <?php endif; ?>
   </div>
 
@@ -858,7 +858,7 @@ function renderUserPanel(array $panel, array $family, int $savedUserId, int $the
         </details>
       <?php endif; ?>
     <?php else: ?>
-      <p class="empty-hint">LINE連携機能が現在ご利用いただけません。サポートまでお問い合わせください。</p>
+      <p class="empty-hint">LINE連携機能が現在ご利用いただけません。<a href="/support/">サポートページ</a>でご確認ください。</p>
     <?php endif; ?>
   </div>
 
