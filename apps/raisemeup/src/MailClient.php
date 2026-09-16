@@ -28,12 +28,16 @@ class MailClient
         if (Config::get('SMTP_HOST', '') === '') {
             return null;
         }
+        // SMTP認証はGoogle Workspaceの実アカウント(例: admin@)で行うが、送信元として表示したい
+        // アドレスはエイリアス(例: support@)の場合があるため、両者を別の環境変数として分離する。
+        // SMTP_FROM_EMAIL未設定時はSMTP_USERNAMEをそのまま使う(従来動作との後方互換)。
+        $username = Config::get('SMTP_USERNAME', '');
         return new self(
             Config::get('SMTP_HOST', ''),
             (int) Config::get('SMTP_PORT', '587'),
-            Config::get('SMTP_USERNAME', ''),
+            $username,
             Config::get('SMTP_PASSWORD', ''),
-            Config::get('SMTP_USERNAME', ''),
+            Config::get('SMTP_FROM_EMAIL', $username) ?: $username,
             Config::get('SMTP_FROM_NAME', 'TAYORI')
         );
     }
