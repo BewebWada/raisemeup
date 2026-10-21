@@ -6,3 +6,9 @@
 <FilesMatch "(?i)\.md$">
     Require all denied
 </FilesMatch>
+
+# Git metadata must never be served from the document root.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule (^|/)\.git(?:/|$) - [F,L,NC]
+</IfModule>
